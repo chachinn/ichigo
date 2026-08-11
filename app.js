@@ -46,53 +46,14 @@ const ICON = {cafe:"☕",food:"🍜",transport:"🚃",shopping:"🛍️",activit
 const uuid=()=>crypto.randomUUID();
 const clone=x=>structuredClone(x);
 
-const demoTrip={
-  id:uuid(), title:"Japan 2026", destination:"Japan", cityLabel:"TOKYO", countryEmoji:"🇯🇵",
-  startDate:"2026-10-18", endDate:"2026-10-24", baseCurrency:"JPY", homeCurrency:"PHP",
-  totalBudget:180000, dailyBudget:12000,
-  travelers:[
-    {id:"cha",name:"Cha",role:"Owner",emoji:"👩🏻"},
-    {id:"martin",name:"Martin",role:"Member",emoji:"👨🏻"}
-  ],
-  itinerary:[
-    {id:uuid(),date:"2026-10-20",time:"08:30",title:"Breakfast",place:"Shinjuku",type:"cafe",notes:""},
-    {id:uuid(),date:"2026-10-20",time:"10:00",title:"Shinjuku → Kamakura",place:"Train",type:"transport",notes:"Train departs 9:42 AM"},
-    {id:uuid(),date:"2026-10-20",time:"11:15",title:"Hasedera Temple",place:"Kamakura",type:"attraction",notes:""},
-    {id:uuid(),date:"2026-10-20",time:"13:00",title:"Lunch",place:"Enoshima area",type:"food",notes:""},
-    {id:uuid(),date:"2026-10-20",time:"15:30",title:"Enoshima",place:"Explore & walk around",type:"place",notes:""}
-  ],
-  places:[
-    {id:uuid(),name:"Ichiran Ramen",area:"Shinjuku",category:"Restaurant",notes:"",votes:{cha:"❤️",martin:"👍"},visited:false},
-    {id:uuid(),name:"Pokémon Café",area:"Nihonbashi",category:"Café",notes:"",votes:{cha:"❤️",martin:"😐"},visited:false},
-    {id:uuid(),name:"teamLab Planets",area:"Toyosu",category:"Attraction",notes:"",votes:{cha:"❤️",martin:"👍"},visited:false},
-    {id:uuid(),name:"Harajuku Takeshita St.",area:"Harajuku",category:"Shopping",notes:"",votes:{cha:"👍",martin:"👍"},visited:false},
-    {id:uuid(),name:"Shibuya Sky",area:"Shibuya",category:"Attraction",notes:"",votes:{cha:"❤️",martin:"👍"},visited:false}
-  ],
-  bookings:[
-    {id:uuid(),type:"Flight",title:"Flight to Tokyo (NRT)",date:"2026-10-18",time:"15:30",confirmation:"PR 434",notes:"MNL → NRT",status:"Confirmed"},
-    {id:uuid(),type:"Hotel",title:"Hotel Gracery Shinjuku",date:"2026-10-18",time:"",confirmation:"6 nights",notes:"Oct 18–24",status:"Confirmed"},
-    {id:uuid(),type:"Ticket",title:"Tokyo Disneyland Ticket",date:"2026-10-21",time:"",confirmation:"2 × 1-Day Passport",notes:"",status:"Confirmed"}
-  ],
-  packing:[
-    {id:uuid(),category:"Essentials",name:"Passport",done:true},{id:uuid(),category:"Essentials",name:"Wallet / cards",done:true},
-    {id:uuid(),category:"Clothing",name:"7 outfits",done:false},{id:uuid(),category:"Clothing",name:"Comfortable shoes",done:false},
-    {id:uuid(),category:"Toiletries",name:"Skincare",done:true},{id:uuid(),category:"Electronics",name:"Phone charger",done:false},
-    {id:uuid(),category:"Electronics",name:"Power bank",done:false}
-  ],
-  preTrip:[
-    {id:uuid(),name:"Passport",detail:"Check validity",done:true},{id:uuid(),name:"Visa",detail:"Confirm requirements",done:true},
-    {id:uuid(),name:"Travel Insurance",detail:"Save policy offline",done:false},{id:uuid(),name:"SIM / eSIM",detail:"Install before departure",done:false},
-    {id:uuid(),name:"Cash",detail:"Prepare starter cash",done:false},{id:uuid(),name:"Credit / Debit Card",detail:"Enable international use",done:false},
-    {id:uuid(),name:"Itinerary Print / Offline",detail:"Save backup",done:false},{id:uuid(),name:"Emergency Contacts",detail:"Save offline",done:false}
-  ],
-  expenses:[
-    {id:uuid(),date:"2026-10-20",title:"Breakfast",category:"Food",amount:1420,payment:"Card",paidBy:"cha",participants:["cha"],split:"personal"},
-    {id:uuid(),date:"2026-10-20",title:"Train tickets",category:"Transport",amount:5000,payment:"IC Card",paidBy:"martin",participants:["cha","martin"],split:"equal"}
-  ],
-  memories:[]
+const initial={
+  currentTripId:"",
+  currentView:"home",
+  planView:"itinerary",
+  spendView:"budget",
+  tripView:"memories",
+  trips:[]
 };
-
-const initial={currentTripId:demoTrip.id,currentView:"home",planView:"itinerary",spendView:"budget",tripView:"memories",trips:[demoTrip]};
 let state=load();
 let installPrompt=null;
 
@@ -106,7 +67,7 @@ function load(){
     const raw=localStorage.getItem(STORE);
     if(!raw)return clone(initial);
     const x=JSON.parse(raw);
-    return Array.isArray(x.trips)&&x.trips.length?x:clone(initial);
+    return Array.isArray(x.trips)?x:clone(initial);
   }catch{return clone(initial)}
 }
 function save(){localStorage.setItem(STORE,JSON.stringify(state))}
@@ -307,7 +268,7 @@ function infoHTML(){
   const t=trip();return `<div class="card" style="padding:16px"><div class="form-grid"><div class="form-row"><label>TRIP NAME</label><input id="infoTitle" value="${esc(t.title)}"></div><div class="form-row"><label>DESTINATION</label><input id="infoDestination" value="${esc(t.destination)}"></div><div class="form-row two"><div><label>START</label><input id="infoStart" type="date" value="${t.startDate}"></div><div><label>END</label><input id="infoEnd" type="date" value="${t.endDate}"></div></div><div class="form-row two"><div><label>BASE CURRENCY</label><select id="infoCurrency">${currencyOptions(t.baseCurrency)}</select></div><div><label>HOME CURRENCY</label><select id="infoHomeCurrency">${currencyOptions(t.homeCurrency)}</select></div></div><button class="btn primary" data-action="save-trip-info">Save trip info</button></div></div>`
 }
 function settingsHTML(){
-  return `<div class="card" style="padding:16px"><div class="section-title"><h3>Local data</h3></div><p class="meta">Build 1 stores your trip on this device. No login or backend is required.</p><div class="btn-row" style="margin-top:12px"><button class="btn soft" data-action="export-data">Export backup</button><button class="btn" data-action="import-data">Import backup</button></div><input id="importFile" type="file" accept="application/json" hidden><hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><div class="section-title"><h3>PWA / offline</h3></div><p class="meta">Install Ichigo from your browser. The app shell is cached by the service worker.</p><button class="btn soft" data-action="install-app">Install Ichigo</button><hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><button class="btn danger full" data-action="reset-demo">Reset Build 1 demo data</button></div>`
+  return `<div class="card" style="padding:16px"><div class="section-title"><h3>Local data</h3></div><p class="meta">Build 1 stores your trip on this device. No login or backend is required.</p><div class="btn-row" style="margin-top:12px"><button class="btn soft" data-action="export-data">Export backup</button><button class="btn" data-action="import-data">Import backup</button></div><input id="importFile" type="file" accept="application/json" hidden><hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><div class="section-title"><h3>PWA / offline</h3></div><p class="meta">Install Ichigo from your browser. The app shell is cached by the service worker.</p><button class="btn soft" data-action="install-app">Install Ichigo</button><hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><button class="btn danger full" data-action="reset-demo">Reset all local data</button></div>`
 }
 
 function openModal(title,html){
@@ -366,7 +327,7 @@ document.addEventListener("click",e=>{
   if(a==="export-data"){download(`ichigo-backup-${isoToday()}.json`,JSON.stringify(state,null,2));notify("Backup exported")}
   if(a==="import-data")document.querySelector("#importFile")?.click()
   if(a==="install-app")install()
-  if(a==="reset-demo"&&confirm("Reset Ichigo Build 1 and erase local changes on this device?")){localStorage.removeItem(STORE);state=clone(initial);save();render();notify("Demo reset")}
+  if(a==="reset-demo"&&confirm("Erase all local Ichigo data on this device?")){localStorage.removeItem(STORE);state=clone(initial);save();render();notify("Ichigo reset")}
   if(a==="toggle-online-info")notify(navigator.onLine?"Online. Saved data will also remain available offline.":"Offline mode active. Your saved trip essentials still work.")
 })
 
@@ -391,7 +352,7 @@ document.addEventListener("submit",async e=>{
   if(f.id==="packingForm"){t.packing.push({id:uuid(),category:d.category,name:d.name.trim(),done:false});save();closeModal();state.currentView="plan";state.planView="packing";save();render();notify("Packing item added")}
   if(f.id==="taskForm"){t.preTrip.push({id:uuid(),name:d.name.trim(),detail:d.detail.trim(),done:false});save();closeModal();state.currentView="plan";state.planView="before";save();render();notify("Task added")}
   if(f.id==="memoryForm"){let image="";const file=document.querySelector("#memoryImage")?.files?.[0];if(file){try{image=await imageData(file)}catch{}}t.memories.push({id:uuid(),date:d.date,title:d.title.trim(),note:d.note.trim(),image});try{save()}catch{t.memories.at(-1).image="";save();notify("Storage was full; saved memory without photo.")}closeModal();state.currentView="trip";state.tripView="memories";save();render();notify("Memory saved")}
-  if(f.id==="tripForm"){const n={id:uuid(),title:d.title.trim(),destination:d.destination.trim(),cityLabel:d.destination.toUpperCase(),countryEmoji:d.countryEmoji||"✈️",startDate:d.startDate,endDate:d.endDate,baseCurrency:d.baseCurrency,homeCurrency:"PHP",totalBudget:0,dailyBudget:0,travelers:[{id:uuid(),name:"Me",role:"Owner",emoji:"🙂"}],itinerary:[],places:[],bookings:[],packing:[],preTrip:[],expenses:[],memories:[]};state.trips.push(n);state.currentTripId=n.id;state.currentView="home";save();closeModal();render();notify("New trip created 🍓")}
+  if(f.id==="tripForm"){const n={id:uuid(),title:d.title.trim(),destination:d.destination.trim(),cityLabel:d.destination.toUpperCase(),countryEmoji:d.countryEmoji||"✈️",startDate:d.startDate,endDate:d.endDate,baseCurrency:d.baseCurrency,homeCurrency:"PHP",totalBudget:0,dailyBudget:0,travelers:[],itinerary:[],places:[],bookings:[],packing:[],preTrip:[],expenses:[],memories:[]};state.trips.push(n);state.currentTripId=n.id;state.currentView="home";save();closeModal();render();notify("New trip created 🍓")}
   if(f.id==="budgetForm"){t.totalBudget=Number(d.totalBudget||0);t.dailyBudget=Number(d.dailyBudget||0);save();closeModal();render();notify("Budget updated")}
   if(f.id==="travelerForm"){t.travelers.push({id:uuid(),name:d.name.trim(),role:"Member",emoji:d.emoji||"🙂"});save();closeModal();render();notify("Traveler added locally")}
 })
@@ -482,15 +443,6 @@ function ensureTripV2(t) {
   t.coverKey ||= "";
   t.coverLegacy ||= "";
   t.converter ||= { from: t.baseCurrency || "JPY", to: t.homeCurrency || "PHP", history: [], lastLiveUpdate: "" };
-
-  const seedCoordinates = {
-    "Ichiran Ramen": [35.6938, 139.7034],
-    "Pokémon Café": [35.6812, 139.7737],
-    "teamLab Planets": [35.6491, 139.7899],
-    "Harajuku Takeshita St.": [35.6717, 139.7030],
-    "Shibuya Sky": [35.6584, 139.7022]
-  };
-
   (t.places ||= []).forEach((p, index) => {
     p.priority ||= index < 2 ? "Must go" : index < 4 ? "Want" : "Maybe";
     p.favorite ??= p.priority === "Must go";
@@ -501,7 +453,6 @@ function ensureTripV2(t) {
     p.tags ||= [];
     p.lat = Number.isFinite(Number(p.lat)) ? Number(p.lat) : null;
     p.lng = Number.isFinite(Number(p.lng)) ? Number(p.lng) : null;
-    if ((!p.lat || !p.lng) && seedCoordinates[p.name]) [p.lat, p.lng] = seedCoordinates[p.name];
   });
 
   const activityCoordinates = {
@@ -1068,7 +1019,7 @@ function infoHTML() {
 }
 
 function settingsHTML() {
-  return `<div class="card" style="padding:16px"><div class="section-title"><h3>Local data</h3></div><p class="meta">Build 2 keeps structured trip data in localStorage and photos / attachments in IndexedDB. Your app still has no account or server dependency.</p><div class="btn-row" style="margin-top:12px"><button class="btn soft" data-action="export-data">Export JSON data</button><button class="btn" data-action="import-data">Import JSON data</button></div><input id="importFile" type="file" accept="application/json" hidden><p class="inline-help">The JSON backup contains trip records but not the separate IndexedDB photo/attachment blobs.</p><hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><div class="section-title"><h3>PWA / offline</h3></div><p class="meta">Core screens and local trip information are cached. Online map tiles and live exchange-rate refresh need a connection.</p><button class="btn soft" data-action="install-app">Install Ichigo</button><hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><button class="btn danger full" data-action="reset-demo">Reset demo data</button></div>`;
+  return `<div class="card" style="padding:16px"><div class="section-title"><h3>Local data</h3></div><p class="meta">Build 2 keeps structured trip data in localStorage and photos / attachments in IndexedDB. Your app still has no account or server dependency.</p><div class="btn-row" style="margin-top:12px"><button class="btn soft" data-action="export-data">Export JSON data</button><button class="btn" data-action="import-data">Import JSON data</button></div><input id="importFile" type="file" accept="application/json" hidden><p class="inline-help">The JSON backup contains trip records but not the separate IndexedDB photo/attachment blobs.</p><hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><div class="section-title"><h3>PWA / offline</h3></div><p class="meta">Core screens and local trip information are cached. Online map tiles and live exchange-rate refresh need a connection.</p><button class="btn soft" data-action="install-app">Install Ichigo</button><hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><button class="btn danger full" data-action="reset-demo">Reset all local data</button></div>`;
 }
 
 function activityFormHTMLV2(item={}) {
@@ -1351,7 +1302,7 @@ document.addEventListener("submit",async e=>{
   }
 
   if(f.id==="tripFormV2"){
-    const n=ensureTripV2({id:uuid(),title:d.title.trim(),destination:d.destination.trim(),cityLabel:d.destination.toUpperCase(),countryEmoji:d.countryEmoji||"✈️",startDate:d.startDate,endDate:d.endDate,baseCurrency:d.baseCurrency,homeCurrency:"PHP",totalBudget:0,dailyBudget:0,categoryBudgets:{},coverKey:"",travelers:[{id:uuid(),name:"Me",role:"Owner",emoji:"🙂"}],itinerary:[],places:[],bookings:[],packing:[],preTrip:[],expenses:[],memories:[]});state.trips.push(n);state.currentTripId=n.id;state.currentView="home";save();closeModal();render();notify("New trip created 🍓");
+    const n=ensureTripV2({id:uuid(),title:d.title.trim(),destination:d.destination.trim(),cityLabel:d.destination.toUpperCase(),countryEmoji:d.countryEmoji||"✈️",startDate:d.startDate,endDate:d.endDate,baseCurrency:d.baseCurrency,homeCurrency:"PHP",totalBudget:0,dailyBudget:0,categoryBudgets:{},coverKey:"",travelers:[],itinerary:[],places:[],bookings:[],packing:[],preTrip:[],expenses:[],memories:[]});state.trips.push(n);state.currentTripId=n.id;state.currentView="home";save();closeModal();render();notify("New trip created 🍓");
   }
 
   if(f.id==="budgetFormV2"){
@@ -1409,10 +1360,10 @@ const CACHE_VERSION_V3 = "ichigo-build3-v1";
 const REMINDER_LOG_V3 = "ichigo-reminder-log-v3";
 
 const DEFAULT_SETTINGS_V3 = {
-  travelerName: "Me",
-  homeCountry: "Philippines",
-  homeCurrency: "PHP",
-  defaultTripCurrency: "JPY",
+  travelerName: "",
+  homeCountry: "",
+  homeCurrency: "USD",
+  defaultTripCurrency: "USD",
   dateFormat: "friendly",
   timeFormat: "12h",
   mapApp: "apple",
@@ -1815,7 +1766,7 @@ function settingsHTML() {
 
     <section class="card settings-card-v3"><div class="section-title"><h3>🧪 Testing & debug</h3></div><div class="diagnostic-grid-v3"><span>App</span><strong>${APP_VERSION_V3}</strong><span>Schema</span><strong>v${APP_SCHEMA_VERSION_V3}</strong><span>Cache</span><strong>${CACHE_VERSION_V3}</strong><span>Network</span><strong>${navigator.onLine?"Online":"Offline"}</strong><span>Notifications</span><strong>${window.Notification?.permission||"N/A"}</strong></div><div class="btn-row wrap-v3" style="margin-top:10px"><button class="btn soft" data-action="run-selftest-v3">Run self-test</button><button class="btn" data-action="copy-diagnostics-v3">Copy diagnostics</button><button class="btn" data-action="clear-caches-v3">Clear app caches</button></div></section>
 
-    <section class="card settings-card-v3"><button class="btn danger full" data-action="reset-demo">Reset demo data</button></section>
+    <section class="card settings-card-v3"><button class="btn danger full" data-action="reset-demo">Reset all local data</button></section>
   </div>`;
 }
 
@@ -1912,8 +1863,8 @@ document.addEventListener("submit",async event=>{
   if(f.id==="contactFormV3"){const old=editId?t.essentials.contacts.find(x=>x.id===editId):null,item=old||{id:uuid()};Object.assign(item,{name:d.name.trim(),phone:d.phone.trim(),note:d.note.trim()});if(!old)t.essentials.contacts.push(item);save();closeModal();render()}
   if(f.id==="documentFormV3"){const old=editId?t.essentials.documents.find(x=>x.id===editId):null,item=old||{id:uuid()};Object.assign(item,{name:d.name.trim(),reference:d.reference.trim()});if(!old)t.essentials.documents.push(item);save();closeModal();render()}
   if(f.id==="phraseFormV3"){const old=editId?t.essentials.phrases.find(x=>x.id===editId):null,item=old||{id:uuid()};Object.assign(item,{jp:d.jp.trim(),romaji:d.romaji.trim(),en:d.en.trim()});if(!old)t.essentials.phrases.push(item);save();closeModal();render()}
-  if(f.id==="settingsFormV3"){state.settings.travelerName=d.travelerName.trim()||"Me";state.settings.homeCountry=d.homeCountry.trim();state.settings.homeCurrency=d.homeCurrency;state.settings.defaultTripCurrency=d.defaultTripCurrency;state.settings.dateFormat=d.dateFormat;state.settings.timeFormat=d.timeFormat;state.settings.mapApp=d.mapApp;state.settings.theme=d.theme;save();applyAppearanceV3();render();notify("Preferences saved")}
-  if(f.id==="tripFormV3"){const n=ensureTripV3({id:uuid(),title:d.title.trim(),destination:d.destination.trim(),cityLabel:d.destination.toUpperCase(),countryEmoji:d.countryEmoji||"✈️",startDate:d.startDate,endDate:d.endDate,baseCurrency:d.baseCurrency,homeCurrency:state.settings.homeCurrency,totalBudget:0,dailyBudget:0,categoryBudgets:{},coverKey:"",theme:"inherit",accentColor:"",travelers:[{id:uuid(),name:state.settings.travelerName||"Me",role:"Owner",emoji:"🙂"}],itinerary:[],places:[],bookings:[],packing:[],preTrip:[],expenses:[],memories:[],inbox:[]});state.trips.push(n);state.currentTripId=n.id;state.currentView="home";save();closeModal();render();notify("New trip created 🍓")}
+  if(f.id==="settingsFormV3"){state.settings.travelerName=d.travelerName.trim();state.settings.homeCountry=d.homeCountry.trim();state.settings.homeCurrency=d.homeCurrency;state.settings.defaultTripCurrency=d.defaultTripCurrency;state.settings.dateFormat=d.dateFormat;state.settings.timeFormat=d.timeFormat;state.settings.mapApp=d.mapApp;state.settings.theme=d.theme;save();applyAppearanceV3();render();notify("Preferences saved")}
+  if(f.id==="tripFormV3"){const n=ensureTripV3({id:uuid(),title:d.title.trim(),destination:d.destination.trim(),cityLabel:d.destination.toUpperCase(),countryEmoji:d.countryEmoji||"✈️",startDate:d.startDate,endDate:d.endDate,baseCurrency:d.baseCurrency,homeCurrency:state.settings.homeCurrency,totalBudget:0,dailyBudget:0,categoryBudgets:{},coverKey:"",theme:"inherit",accentColor:"",travelers:[],itinerary:[],places:[],bookings:[],packing:[],preTrip:[],expenses:[],memories:[],inbox:[]});state.trips.push(n);state.currentTripId=n.id;state.currentView="home";save();closeModal();render();notify("New trip created 🍓")}
 });
 
 
@@ -2278,7 +2229,7 @@ function createTripFromTemplateV4(templateId,data) {
     baseCurrency:data.baseCurrency,homeCurrency:state.settings.homeCurrency,totalBudget:Number(template.totalBudget||0),
     dailyBudget:Number(template.dailyBudget||0),categoryBudgets:clone(template.categoryBudgets||{}),coverKey:"",
     theme:"inherit",accentColor:"",archived:false,
-    travelers:[{id:uuid(),name:state.settings.travelerName||"Me",role:"Owner",emoji:"🙂"}],
+    travelers:[],
     itinerary:[],places:[],bookings:[],packing:[],preTrip:[],expenses:[],memories:[],inbox:[]
   });
 
@@ -2507,7 +2458,7 @@ function settingsHTML() {
     <section class="card settings-card-v3"><div class="section-title"><h3>💾 Backup & restore</h3></div><p class="meta">Full backup includes all trips and local media. Per-trip export lives under Trip Info.</p><div class="btn-row"><button class="btn soft" data-action="export-full-backup-v3">Export full backup</button><button class="btn" data-action="import-full-backup-v3">Restore backup</button></div><input id="importFullBackupV3" type="file" accept="application/json" hidden><div class="storage-line-v3"><span>Local files</span><strong id="dbStatsV3">Checking…</strong></div><div class="storage-line-v3"><span>Browser storage</span><strong id="storageEstimateV3">Checking…</strong></div></section>
     <section class="card settings-card-v3"><div class="section-title"><h3>⬆️ App updates</h3></div><p class="meta">Ichigo checks GitHub Pages for a newer cached build.</p><div class="btn-row"><button class="btn soft" data-action="force-update-check-v3">Check for update</button><button class="btn" data-action="install-app">Install Ichigo</button></div></section>
     <section class="card settings-card-v3"><div class="section-title"><h3>🧪 Testing & debug</h3></div><div class="diagnostic-grid-v3"><span>App</span><strong>${APP_VERSION_V4}</strong><span>Schema</span><strong>v${APP_SCHEMA_VERSION_V4}</strong><span>Cache</span><strong>${CACHE_VERSION_V4}</strong><span>Network</span><strong>${navigator.onLine?"Online":"Offline"}</strong></div><div class="btn-row wrap-v3" style="margin-top:10px"><button class="btn soft" data-action="run-selftest-v3">Run self-test</button><button class="btn" data-action="copy-diagnostics-v3">Copy diagnostics</button><button class="btn" data-action="clear-caches-v3">Clear app caches</button></div></section>
-    <section class="card settings-card-v3"><button class="btn danger full" data-action="reset-demo">Reset demo data</button></section>
+    <section class="card settings-card-v3"><button class="btn danger full" data-action="reset-demo">Reset all local data</button></section>
   </div>`;
 }
 
@@ -3925,10 +3876,173 @@ document.addEventListener("click",event=>{
   setTimeout(()=>{try{markChangedV7(label,el.dataset.action,el.dataset.id||"")}catch{}},120);
 });
 
-/* ---------- Build 7 startup ---------- */
+
+/* =====================================================================
+   ICHIGO BUILD 7.1 — CLEAN FIRST-RUN / NO SEEDED CONTENT
+   - Zero trips on a brand-new install
+   - Zero travelers on a newly created trip
+   - No named people, sample places, sample bookings or sample expenses
+   - Removes the legacy Japan 2026 demo from older prototype installs
+   ===================================================================== */
+
+const APP_VERSION_V71 = "7.1.0-personal-fresh";
+const CACHE_VERSION_V71 = "ichigo-build7-1-fresh-v1";
+
+function isLegacyDemoTripV71(t) {
+  if (!t) return false;
+  const names = new Set((t.travelers || []).map(x => String(x.name || "").trim().toLowerCase()));
+  const placeNames = new Set((t.places || []).map(x => String(x.name || "").trim().toLowerCase()));
+  const legacyPeople = names.has("cha") && names.has("martin");
+  const legacyPlaces =
+    placeNames.has("ichiran ramen") &&
+    placeNames.has("teamlab planets") &&
+    placeNames.has("shibuya sky");
+  return t.title === "Japan 2026" && t.destination === "Japan" && legacyPeople && legacyPlaces;
+}
+
+function cleanLegacyDemoV71() {
+  let removed = false;
+  state.trips = (state.trips || []).filter(t => {
+    if (isLegacyDemoTripV71(t)) { removed = true; return false; }
+    return true;
+  });
+
+  if (removed) {
+    state.currentTripId = state.trips[0]?.id || "";
+    state.currentView = "home";
+    state.planView = "itinerary";
+    state.spendView = "budget";
+    state.tripView = "memories";
+
+    /* The original prototype also injected Philippines / Me defaults.
+       Only neutralize them as part of this known legacy-demo cleanup. */
+    state.settings ||= {};
+    if (state.settings.travelerName === "Me") state.settings.travelerName = "";
+    if (state.settings.homeCountry === "Philippines") state.settings.homeCountry = "";
+    if (state.settings.homeCurrency === "PHP") state.settings.homeCurrency = "USD";
+    if (state.settings.defaultTripCurrency === "JPY") state.settings.defaultTripCurrency = "USD";
+  }
+  return removed;
+}
+
+function renderFreshStartV71() {
+  document.documentElement.dataset.theme = state.settings?.theme || "strawberry";
+  document.querySelectorAll(".nav-item").forEach(x => {
+    const active = x.dataset.nav === "home";
+    x.classList.toggle("active", active);
+    if (active) x.setAttribute("aria-current","page"); else x.removeAttribute("aria-current");
+  });
+
+  main.innerHTML = `
+    <section class="fresh-start-v71">
+      <div class="fresh-berry-v71">🍓</div>
+      <p class="eyebrow">WELCOME TO ICHIGO</p>
+      <h1>Plan sweet little adventures.</h1>
+      <p class="fresh-copy-v71">Your Ichigo is empty and ready for your first trip. Nothing is pre-filled, and your travel data stays on this device.</p>
+
+      <div class="fresh-actions-v71">
+        <button class="btn primary" data-action="new-trip">＋ Create your first trip</button>
+      </div>
+
+      <div class="fresh-features-v71">
+        <div><span>🗓️</span><strong>Plan</strong><small>Itinerary, places, bookings and packing</small></div>
+        <div><span>🍓</span><strong>Live it</strong><small>Today Mode, spending and quick notes</small></div>
+        <div><span>📖</span><strong>Remember</strong><small>Journal, timeline and scrapbook</small></div>
+      </div>
+
+      <div class="fresh-privacy-v71">No demo trip · No default travelers · No account required</div>
+    </section>`;
+  updateOnline();
+  ensureStatusUIV7();
+  const offline=document.querySelector("#offlineStatusV7");
+  if(offline)offline.textContent=navigator.onLine?"Online":"Offline";
+}
+
+const renderBeforeFreshV71 = render;
+render = function renderWithFreshStartV71() {
+  ensureStateV7();
+  if (!(state.trips || []).length) {
+    renderFreshStartV71();
+    return;
+  }
+  renderBeforeFreshV71();
+};
+
+/* Travel Together must look intentionally empty until the user adds people. */
+renderTogether = function renderTogetherFreshV71() {
+  const t=trip();
+  const travelers=t.travelers||[];
+  const matches=travelers.length
+    ? t.places.filter(p=>{
+        const votes=p.votes||{};
+        return travelers.every(person=>["❤️","👍"].includes(votes[person.id]));
+      })
+    : [];
+
+  main.innerHTML=`
+    <div class="page-head">
+      <div><p class="eyebrow">TOGETHER</p><h1>Travel Together</h1><p>Add the people joining this trip</p></div>
+      <button class="btn soft" data-action="add-traveler-v3">＋ Traveler</button>
+    </div>
+
+    <section class="section">
+      <div class="section-title"><h3>Travelers</h3><span class="meta">${travelers.length}</span></div>
+      ${travelers.length
+        ? `<div class="card" style="padding:8px 13px">${travelers.map(x=>`
+            <div class="list-row" style="border:0">
+              <div class="row-icon">${x.emoji||"🙂"}</div>
+              <div class="row-main"><h4>${esc(x.name)}</h4><p>${esc(x.role||"Member")}</p></div>
+              <button class="tiny-btn" data-action="edit-traveler-v3" data-id="${x.id}">Edit</button>
+              <button class="tiny-btn danger" data-action="delete-traveler-v3" data-id="${x.id}">Delete</button>
+            </div>`).join("")}</div>`
+        : empty("👥","No travelers added","Add yourself, a partner, family member or friend only if you want to use the local Together tools.")}
+    </section>
+
+    <section class="section">
+      <div class="section-title"><h3>💗 Group Picks</h3><span class="meta">${matches.length} matches</span></div>
+      <div class="list">${matches.length
+        ? matches.map(p=>`<div class="list-row"><div class="row-icon">${categoryEmoji(p.category)}</div><div class="row-main"><h4>${esc(p.name)}</h4><p>${esc(p.area)} · everyone is interested</p></div><span>💗</span></div>`).join("")
+        : empty("💗","No group picks yet",travelers.length<2?"Add at least two travelers, then vote on saved places.":"Vote on saved places to discover shared favorites.")}</div>
+    </section>
+
+    <section class="section">${travelers.length?splitHTML():`<div class="notice-card"><span class="notice-icon">💸</span><span><strong>Shared expenses are optional.</strong><p>Add travelers first if you want Ichigo to calculate local expense splits.</p></span></div>`}</section>`;
+};
+
+/* Traveler form uses a friendly neutral face only as a visual fallback. */
+travelerFormHTMLV3 = function travelerFormFreshV71(item={}) {
+  return `<form id="travelerFormV3" data-edit-id="${item.id||""}" class="form-grid">
+    <div class="form-row"><label>NAME</label><input name="name" required value="${esc(item.name||"")}" placeholder="Traveler name"></div>
+    <div class="form-row two">
+      <div><label>EMOJI</label><input name="emoji" value="${esc(item.emoji||"🙂")}" placeholder="🙂"></div>
+      <div><label>ROLE</label><select name="role"><option ${item.role==="Owner"?"selected":""}>Owner</option><option ${item.role!=="Owner"?"selected":""}>Member</option></select></div>
+    </div>
+    <button class="btn primary">Save traveler</button>
+  </form>`;
+};
+
+/* Make the newest trip forms blank with zero travelers. */
+const createTripFromTemplateBeforeV71 = createTripFromTemplateV4;
+createTripFromTemplateV4 = function createTripFromTemplateFreshV71(templateId,data) {
+  const created=createTripFromTemplateBeforeV71(templateId,data);
+  created.travelers=[];
+  save();
+  return created;
+};
+
+
+/* ---------- Build 7.1 startup ---------- */
+const legacyDemoRemovedV71 = cleanLegacyDemoV71();
 migrateAllTripsV7(true);
-applyLaunchShortcut();
-applyAppearanceV3();
+state.appVersion = APP_VERSION_V71;
+if (state.trips.length) {
+  applyLaunchShortcut();
+  applyAppearanceV3();
+} else {
+  state.currentView = "home";
+  document.documentElement.dataset.theme = state.settings?.theme || "strawberry";
+}
 save();
 render();
 setupServiceWorkerUpdatesV3();
+if (legacyDemoRemovedV71) setTimeout(()=>notify("Old prototype sample data was removed ✓"),250);
+

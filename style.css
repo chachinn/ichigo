@@ -242,3 +242,16 @@ html[data-theme="lavender"]{--bg:#fbf9ff;--soft:#f2ecff;--pink:#a486dd;--pink2:#
 @media(prefers-contrast:more){
   .card,.notice-card,.itinerary-card,.smart-place-v7,.scratch-card-v7{border-width:2px}
 }
+
+
+/* Ichigo 7.1 — clean first-run screen */
+.fresh-start-v71{max-width:620px;margin:clamp(34px,8vh,90px) auto 40px;padding:28px 20px;text-align:center}
+.fresh-berry-v71{width:92px;height:92px;margin:0 auto 12px;display:grid;place-items:center;border-radius:28px;background:linear-gradient(145deg,#fff,#ffe8ee);border:1px solid var(--line);box-shadow:var(--shadow);font-size:48px}
+.fresh-start-v71 h1{font-size:clamp(28px,7vw,42px);line-height:1.04;margin:7px auto 10px;max-width:520px}
+.fresh-copy-v71{max-width:470px;margin:0 auto;color:var(--muted);font-size:12px;line-height:1.6}
+.fresh-actions-v71{margin:22px auto 18px;display:flex;justify-content:center}.fresh-actions-v71 .btn{min-height:48px;padding-inline:22px}
+.fresh-features-v71{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:22px auto;max-width:540px}
+.fresh-features-v71>div{border:1px solid var(--line);border-radius:18px;background:#fff;padding:14px 9px}
+.fresh-features-v71 span{display:block;font-size:24px}.fresh-features-v71 strong{display:block;margin:5px 0 3px;font-size:11px}.fresh-features-v71 small{display:block;color:var(--muted);font-size:8px;line-height:1.4}
+.fresh-privacy-v71{display:inline-block;border-radius:999px;background:var(--soft);padding:7px 11px;color:var(--muted);font-size:8px}
+@media(max-width:430px){.fresh-features-v71{grid-template-columns:1fr}.fresh-features-v71>div{display:grid;grid-template-columns:36px 1fr;column-gap:8px;text-align:left}.fresh-features-v71 span{grid-row:1/3}.fresh-features-v71 strong,.fresh-features-v71 small{margin:0}}
