@@ -1,5 +1,5 @@
 /* Ichigo Build 4 — Offline App Shell */
-const CACHE_NAME = "ichigo-build4-personal-v1";
+const CACHE_NAME = "ichigo-build4-1-icon-refresh-v1";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -8,15 +8,11 @@ const APP_SHELL = [
   "./data/data.js",
   "./data/db.js",
   "./manifest.json",
-  "./manifest.json?v=20260811-build3",
-  "./icons/icon-192.png",
-  "./icons/icon-192.png?v=20260811-build3",
-  "./icons/icon-512.png",
-  "./icons/icon-512.png?v=20260811-build3",
-  "./icons/icon-maskable-512.png",
-  "./icons/icon-maskable-512.png?v=20260811-build3",
-  "./icons/apple-touch-icon.png",
-  "./icons/apple-touch-icon.png?v=20260811-build3"
+  "./manifest.json?v=20260811-build41-iconrefresh",
+  "./icons/apple-touch-icon-v41.png",
+  "./icons/icon-192-v41.png",
+  "./icons/icon-512-v41.png",
+  "./icons/icon-maskable-512-v41.png"
 ];
 
 self.addEventListener("install", event => {
