@@ -3885,8 +3885,8 @@ document.addEventListener("click",event=>{
    - Removes the legacy Japan 2026 demo from older prototype installs
    ===================================================================== */
 
-const APP_VERSION_V71 = "7.2.0-personal-cleanstart";
-const CACHE_VERSION_V71 = "ichigo-build7-2-cleanstart-v1";
+const APP_VERSION_V71 = "7.3.0-personal-explore";
+const CACHE_VERSION_V71 = "ichigo-build7-3-explore-v1";
 
 function isLegacyDemoTripV71(t) {
   if (!t) return false;
@@ -3938,8 +3938,9 @@ function renderFreshStartV71() {
       <h1>Plan sweet little adventures.</h1>
       <p class="fresh-copy-v71">Create your first trip and start building your itinerary, places, budget, bookings and travel memories.</p>
 
-      <div class="fresh-actions-v71">
+      <div class="fresh-actions-v71 fresh-actions-v73">
         <button class="btn primary" data-action="new-trip">＋ Create your first trip</button>
+        <button class="btn soft" data-action="explore-ichigo-v73">Explore Ichigo →</button>
       </div>
 
       <div class="fresh-features-v71">
@@ -4022,6 +4023,203 @@ createTripFromTemplateV4 = function createTripFromTemplateFreshV71(templateId,da
   save();
   return created;
 };
+
+
+
+/* =====================================================================
+   ICHIGO BUILD 7.3 — EXPLORE BEFORE CREATING A TRIP
+   A brand-new user can browse empty feature previews without generating
+   any fake trip, traveler, expense, place, booking or other sample data.
+   ===================================================================== */
+
+let exploreModeV73 = false;
+
+function exploreFeatureCardV73(icon,title,detail) {
+  return `<article class="explore-feature-card-v73"><span>${icon}</span><div><strong>${esc(title)}</strong><p>${esc(detail)}</p></div></article>`;
+}
+
+function exploreCTAHeaderV73(kicker,title,copy) {
+  return `<div class="explore-page-head-v73">
+    <div>
+      <p class="eyebrow">${esc(kicker)}</p>
+      <h1>${esc(title)}</h1>
+      <p>${esc(copy)}</p>
+    </div>
+    <button class="btn primary" data-action="new-trip">＋ Create Trip</button>
+  </div>`;
+}
+
+function renderExploreHomeV73() {
+  main.innerHTML = `
+    <section class="explore-home-v73">
+      <div class="explore-welcome-v73">
+        <img src="./icons/icon-192-v41.png" alt="">
+        <div>
+          <p class="eyebrow">EXPLORE ICHIGO</p>
+          <h1>Take a look around. 🍓</h1>
+          <p>Nothing here is sample trip data. These are just previews of what Ichigo can do once you create your own trip.</p>
+        </div>
+      </div>
+
+      <div class="explore-start-actions-v73">
+        <button class="btn primary" data-action="new-trip">＋ Create your first trip</button>
+        <button class="btn soft" data-action="leave-explore-v73">← Back to welcome</button>
+      </div>
+
+      <section class="section">
+        <div class="section-title"><h3>What you can use</h3><span class="meta">tap the tabs below to explore</span></div>
+        <div class="explore-grid-v73">
+          ${exploreFeatureCardV73("🗓️","Plan","Itinerary, saved places, smart day planning, bookings, packing and travel essentials.")}
+          ${exploreFeatureCardV73("🍓","Today","A focused travel-day screen for your next activity, quick expenses, notes and memories.")}
+          ${exploreFeatureCardV73("💴","Spend","Budgets, daily budgets, expenses, analytics, converter and expense splits.")}
+          ${exploreFeatureCardV73("👥","Together","Optional local traveler list, group picks and shared-expense calculations.")}
+          ${exploreFeatureCardV73("📖","Remember","Journal, timeline, food diary, highlights, story map, scrapbook and recap.")}
+          ${exploreFeatureCardV73("📴","Offline","Local storage, backups, document vault, storage manager and release checks.")}
+        </div>
+      </section>
+
+      <div class="explore-note-v73">Explore mode does not create a trip or add any content to your Ichigo.</div>
+    </section>`;
+}
+
+function renderExplorePlanV73() {
+  main.innerHTML = `
+    ${exploreCTAHeaderV73("PLAN","Plan your trip","This is where your trip takes shape—from loose ideas to a day-by-day itinerary.")}
+    <div class="explore-section-list-v73">
+      ${exploreFeatureCardV73("🗓️","Itinerary","Build days with fixed times or flexible Morning, Afternoon, Evening and Anytime activities.")}
+      ${exploreFeatureCardV73("🍓","Smart Planner","Choose saved places and let Ichigo suggest a local route order using the information you entered.")}
+      ${exploreFeatureCardV73("📍","Places","Save restaurants, cafés, shops and attractions with priorities, coordinates, hours and expected cost.")}
+      ${exploreFeatureCardV73("📥","Inbox & Scratchpad","Capture random recommendations first and organize them later.")}
+      ${exploreFeatureCardV73("🎟️","Bookings","Keep flights, hotels, reservations, confirmations and offline attachments together.")}
+      ${exploreFeatureCardV73("🧳","Packing","Reusable packing lists and templates.")}
+      ${exploreFeatureCardV73("✅","Before You Go","Visa, insurance, documents, SIM, money and other pre-trip tasks.")}
+      ${exploreFeatureCardV73("🔐","Offline Essentials","Hotel details, contacts, phrases and your local document vault.")}
+    </div>`;
+}
+
+function renderExploreTodayV73() {
+  main.innerHTML = `
+    ${exploreCTAHeaderV73("TODAY","Your travel day, simplified","Today Mode becomes the one-handed screen you use while you're actually out exploring.")}
+    <div class="explore-phone-card-v73">
+      <div class="badge green">NEXT</div>
+      <p class="eyebrow">YOUR DESTINATION · DAY 1</p>
+      <h2>Your next activity</h2>
+      <p>Time · place · travel note</p>
+      <div class="explore-action-row-v73"><span>📍 I'm here</span><span>✓ Done</span><span>+15m</span><span>🗺 Map</span></div>
+    </div>
+    <div class="explore-grid-v73">
+      ${exploreFeatureCardV73("⏰","Live timeline","Current, next and overdue activities based on your itinerary.")}
+      ${exploreFeatureCardV73("💸","Quick expense","Log spending without digging through menus.")}
+      ${exploreFeatureCardV73("📝","Quick notes","Attach notes to what you're doing right now.")}
+      ${exploreFeatureCardV73("📸","Instant memories","Turn an activity into a journal memory while it's fresh.")}
+    </div>`;
+}
+
+function renderExploreSpendV73() {
+  main.innerHTML = `
+    ${exploreCTAHeaderV73("SPEND","Keep the trip budget visible","Plan a budget before you leave and compare it with what you actually spend.")}
+    <div class="explore-money-v73">
+      <div><small>TRIP BUDGET</small><strong>—</strong><span>Set your own amount</span></div>
+      <div><small>TODAY</small><strong>—</strong><span>Daily budget tracking</span></div>
+      <div><small>FORECAST</small><strong>—</strong><span>Based on your real expenses</span></div>
+    </div>
+    <div class="explore-grid-v73">
+      ${exploreFeatureCardV73("💰","Budget","Overall, category and individual day budgets.")}
+      ${exploreFeatureCardV73("🧾","Expenses","Merchant, category, payment method, receipts and notes.")}
+      ${exploreFeatureCardV73("📈","Analytics","Daily trends, biggest expense, payment breakdown and spending forecast.")}
+      ${exploreFeatureCardV73("💱","Converter","Calculator-style currency conversion with saved offline fallback rates.")}
+    </div>`;
+}
+
+function renderExploreTogetherV73() {
+  main.innerHTML = `
+    ${exploreCTAHeaderV73("TOGETHER","Optional shared planning tools","You decide who to add. Ichigo starts with zero travelers.")}
+    <div class="explore-empty-card-v73">
+      <span>👥</span>
+      <h2>No travelers by default</h2>
+      <p>When you create a trip, you can keep it entirely solo or manually add the people traveling with you.</p>
+    </div>
+    <div class="explore-grid-v73">
+      ${exploreFeatureCardV73("💗","Group Picks","Vote on saved places and see what everyone is interested in.")}
+      ${exploreFeatureCardV73("💸","Expense Splits","Track who paid and calculate what each traveler owes.")}
+      ${exploreFeatureCardV73("📱","Local for now","Until Supabase is added later, Together tools remain on this device.")}
+    </div>`;
+}
+
+function renderExploreTripV73() {
+  main.innerHTML = `
+    ${exploreCTAHeaderV73("TRIP","The trip becomes your story","After planning and traveling, Ichigo turns the same information into something worth keeping.")}
+    <div class="explore-grid-v73">
+      ${exploreFeatureCardV73("📸","Journal","Photos, tiny notes, locations and favorite moments.")}
+      ${exploreFeatureCardV73("🕰️","Timeline","Itinerary + expenses + memories combined chronologically.")}
+      ${exploreFeatureCardV73("🍜","Food Diary","Food expenses and food memories gathered automatically.")}
+      ${exploreFeatureCardV73("⭐","Highlights","Favorite places, activities and memories in one view.")}
+      ${exploreFeatureCardV73("🗺️","Story Map","Visited places and mapped memories.")}
+      ${exploreFeatureCardV73("📖","Scrapbook","Automatic day-by-day travel pages built from your own data.")}
+      ${exploreFeatureCardV73("📊","Recap","Trip statistics, spending, favorites and completed activities.")}
+      ${exploreFeatureCardV73("💾","Storage & Backup","Local media manager, per-trip export and full backup.")}
+    </div>`;
+}
+
+function renderExploreV73() {
+  document.body.classList.remove("fresh-mode-v72");
+  document.body.classList.add("explore-mode-v73");
+
+  document.querySelectorAll(".nav-item").forEach(x => {
+    const active=x.dataset.nav===state.currentView;
+    x.classList.toggle("active",active);
+    if(active)x.setAttribute("aria-current","page");else x.removeAttribute("aria-current");
+  });
+
+  ({
+    home:renderExploreHomeV73,
+    plan:renderExplorePlanV73,
+    today:renderExploreTodayV73,
+    spend:renderExploreSpendV73,
+    together:renderExploreTogetherV73,
+    trip:renderExploreTripV73
+  }[state.currentView] || renderExploreHomeV73)();
+
+  updateOnline();
+}
+
+const renderFreshAwareBeforeV73 = render;
+render = function renderExploreAwareV73() {
+  ensureStateV7();
+
+  if (!(state.trips || []).length) {
+    if (exploreModeV73) {
+      renderExploreV73();
+      return;
+    }
+    document.body.classList.remove("explore-mode-v73");
+    renderFreshStartV71();
+    return;
+  }
+
+  exploreModeV73=false;
+  document.body.classList.remove("explore-mode-v73");
+  renderFreshAwareBeforeV73();
+};
+
+document.addEventListener("click",event=>{
+  const el=event.target.closest("[data-action]");
+  if(!el)return;
+
+  if(el.dataset.action==="explore-ichigo-v73"){
+    exploreModeV73=true;
+    state.currentView="home";
+    save();
+    render();
+  }
+
+  if(el.dataset.action==="leave-explore-v73"){
+    exploreModeV73=false;
+    state.currentView="home";
+    save();
+    render();
+  }
+});
 
 
 /* ---------- Build 7.1 startup ---------- */
