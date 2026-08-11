@@ -1,5 +1,5 @@
-/* Ichigo Build 3 — Offline App Shell */
-const CACHE_NAME = "ichigo-build3-v1";
+/* Ichigo Build 4 — Offline App Shell */
+const CACHE_NAME = "ichigo-build4-personal-v1";
 const APP_SHELL = [
   "./",
   "./index.html",

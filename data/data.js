@@ -122,3 +122,84 @@ Object.assign(window.ICHIGO_DATA, {
 
   reminderLeadOptions: [5, 10, 15, 30, 60, 120]
 });
+
+
+/* Personal Build 4 starter data. */
+Object.assign(window.ICHIGO_DATA, {
+  appVersion: "4.0.0",
+  schemaVersion: 4,
+
+  documentCategories: [
+    "Passport", "Visa", "Insurance", "Hotel", "Flight", "Train",
+    "Ticket", "Medical", "Emergency", "Other"
+  ],
+
+  tripTemplates: [
+    {
+      id: "japan-explorer",
+      label: "Japan Explorer",
+      emoji: "🇯🇵",
+      description: "A practical Japan starter with packing and pre-trip prep.",
+      days: 7,
+      defaults: { destination: "Japan", countryEmoji: "🇯🇵", baseCurrency: "JPY" },
+      packingTemplate: "Japan trip",
+      useDefaultPreTrip: true
+    },
+    {
+      id: "weekend-city",
+      label: "Weekend City Break",
+      emoji: "🏙️",
+      description: "A light 3-day structure for quick city trips.",
+      days: 3,
+      packingTemplate: "Weekend trip",
+      useDefaultPreTrip: true,
+      starterDay: [
+        { time: "09:00", title: "Breakfast", type: "cafe", duration: 60, travelTime: 0 },
+        { time: "10:30", title: "Morning area", type: "place", duration: 150, travelTime: 20 },
+        { time: "13:30", title: "Lunch", type: "food", duration: 75, travelTime: 20 },
+        { time: "15:30", title: "Afternoon activity", type: "attraction", duration: 150, travelTime: 20 },
+        { time: "19:00", title: "Dinner", type: "food", duration: 90, travelTime: 30 }
+      ]
+    },
+    {
+      id: "relaxed-trip",
+      label: "Slow & Relaxed",
+      emoji: "🌿",
+      description: "Fewer plans, generous buffers and flexible afternoons.",
+      days: 5,
+      packingTemplate: "Quick essentials",
+      useDefaultPreTrip: true,
+      starterDay: [
+        { time: "09:30", title: "Slow breakfast", type: "cafe", duration: 90, travelTime: 0 },
+        { time: "11:30", title: "Main activity", type: "attraction", duration: 180, travelTime: 30 },
+        { time: "", title: "Flexible afternoon", type: "place", duration: 180, travelTime: 30, flexible: true },
+        { time: "18:30", title: "Dinner", type: "food", duration: 90, travelTime: 30 }
+      ]
+    },
+    {
+      id: "work-trip",
+      label: "Work Trip",
+      emoji: "💼",
+      description: "Travel essentials with simple work-day blocks.",
+      days: 4,
+      packingTemplate: "Quick essentials",
+      useDefaultPreTrip: true,
+      starterDay: [
+        { time: "08:00", title: "Breakfast", type: "cafe", duration: 45, travelTime: 0 },
+        { time: "09:00", title: "Work / meeting", type: "activity", duration: 180, travelTime: 15 },
+        { time: "12:30", title: "Lunch", type: "food", duration: 60, travelTime: 15 },
+        { time: "14:00", title: "Work / meeting", type: "activity", duration: 180, travelTime: 15 },
+        { time: "19:00", title: "Dinner / free time", type: "food", duration: 90, travelTime: 30 }
+      ]
+    }
+  ],
+
+  journalPrompts: [
+    "Best thing I ate today",
+    "Favorite little moment",
+    "Something unexpected",
+    "A place I would come back to",
+    "Something I learned today",
+    "The funniest thing that happened"
+  ]
+});

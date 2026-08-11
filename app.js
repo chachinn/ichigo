@@ -1929,8 +1929,751 @@ function beforeHTML() {
   <div class="card" style="padding:13px 15px">${sorted.length?sorted.map(i=>`<label class="check-row ${i.done?"done":""}"><input type="checkbox" ${i.done?"checked":""} data-action="toggle-pretrip" data-id="${i.id}"><span><span class="check-name">${esc(i.name)}</span><small style="display:block;color:var(--muted);margin-top:2px">${esc(i.category)} · <span class="priority-${String(i.priority).toLowerCase()}">${esc(i.priority)}</span></small><small class="task-due ${!i.done&&i.dueDate&&i.dueDate<=isoToday()?"task-overdue":""}">${i.dueDate?`Due ${nice(i.dueDate)}`:"No due date"}${i.detail?` · ${esc(i.detail)}`:""}</small></span><button class="tiny-btn" type="button" data-action="edit-task-v2" data-id="${i.id}">Edit</button><button class="tiny-btn danger" type="button" data-action="delete-v2" data-collection="preTrip" data-id="${i.id}">✕</button></label>`).join(""):empty("✅","Nothing here yet","Add a starter checklist or create your own task.","task")}</div>`;
 }
 
-/* Build 3 startup */
-migrateAllTripsV3(true);
+/* Build 4 owns startup below. */
+
+
+/* =====================================================================
+   ICHIGO BUILD 4 — PERSONAL TRAVEL TOOLS
+   Local-only / personal use. No Supabase, accounts, or cloud sync.
+
+   Adds:
+   1. Trip templates + custom templates
+   2. Reusable day templates
+   3. Trip Health Check
+   4. Smart itinerary warnings
+   5. Today Mode delay / skip / quick-note tools
+   6. Expense analytics + budget forecast
+   7. Offline Document Vault with attachments
+   8. Per-trip export / import
+   9. Personal travel stats
+  10. Manual trip archive
+   ===================================================================== */
+
+const APP_VERSION_V4 = "4.0.0";
+const APP_SCHEMA_VERSION_V4 = 4;
+const CACHE_VERSION_V4 = "ichigo-build4-personal-v1";
+
+function ensureStateV4() {
+  ensureStateV3();
+  state.customTripTemplates ||= [];
+  state.dayTemplates ||= [];
+  state.shelfFilter ||= "all";
+  state.schemaVersion = Number(state.schemaVersion || 1);
+  return state;
+}
+
+function ensureTripV4(t) {
+  t = ensureTripV3(t);
+  if (!t) return t;
+
+  t.archived ??= false;
+  t.archivedAt ||= "";
+  t.quickNotes ||= [];
+
+  (t.itinerary ||= []).forEach(item => {
+    item.skipped ??= false;
+    item.skippedAt ||= "";
+    item.originalTime ||= "";
+    item.delayMinutes = Number(item.delayMinutes || 0);
+  });
+
+  (t.expenses ||= []).forEach(item => {
+    item.activityId ||= "";
+  });
+
+  (t.memories ||= []).forEach(item => {
+    item.highlight ??= false;
+  });
+
+  t.essentials ||= {};
+  t.essentials.documents ||= [];
+  t.essentials.documents.forEach(doc => {
+    doc.id ||= uuid();
+    doc.category ||= "Other";
+    doc.expiryDate ||= "";
+    doc.important ??= false;
+    doc.fileKey ||= "";
+    doc.fileName ||= "";
+    doc.createdAt ||= Date.now();
+  });
+
+  return t;
+}
+
+function migrateAllTripsV4(persist=false) {
+  ensureStateV4();
+  const before = Number(state.schemaVersion || 1);
+  state.trips = (state.trips || []).map(ensureTripV4);
+
+  if (before < 4 && !state.migrations?.some(x => x.version === 4)) {
+    state.migrations ||= [];
+    state.migrations.push({
+      version: 4,
+      at: Date.now(),
+      note: "Personal Build 4 templates, health check, analytics and document vault"
+    });
+  }
+
+  state.schemaVersion = APP_SCHEMA_VERSION_V4;
+  state.appVersion = APP_VERSION_V4;
+  if (persist) save();
+}
+
+function save() {
+  state.schemaVersion = APP_SCHEMA_VERSION_V4;
+  state.appVersion = APP_VERSION_V4;
+  state.updatedAt = Date.now();
+  localStorage.setItem(STORE, JSON.stringify(state));
+}
+
+function trip() {
+  ensureStateV4();
+  return ensureTripV4(state.trips.find(x => x.id === state.currentTripId) || state.trips[0]);
+}
+
+/* ---------- Small helpers ---------- */
+function parseClockRangeV4(value="") {
+  const cleaned = String(value).replace(/[–—]/g, "-");
+  const match = cleaned.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const start = Number(match[1]) * 60 + Number(match[2]);
+  const end = Number(match[3]) * 60 + Number(match[4]);
+  return {start,end};
+}
+
+function linkedPlaceV4(activity,t=trip()) {
+  const hay = `${activity.title || ""} ${activity.place || ""}`.toLowerCase();
+  return t.places.find(p => {
+    const name = String(p.name || "").toLowerCase();
+    return name && (hay.includes(name) || name.includes(String(activity.title || "").toLowerCase()));
+  }) || null;
+}
+
+function scheduleWarningsV4(date,t=trip()) {
+  const rows = activitiesOn(date,t).filter(x => !x.skipped);
+  const warnings = [];
+  const fixed = rows.filter(x => !x.flexible && x.time).sort((a,b)=>minutesFromTime(a.time)-minutesFromTime(b.time));
+
+  for (let i=1;i<fixed.length;i++) {
+    const prev=fixed[i-1], cur=fixed[i];
+    const prevEnd=minutesFromTime(prev.time)+Number(prev.duration||60);
+    const needed=prevEnd+Number(cur.travelTime||0);
+    const curStart=minutesFromTime(cur.time);
+    if (curStart < needed) {
+      const shortBy = needed-curStart;
+      warnings.push({
+        severity:"high",
+        icon:"⏰",
+        title:`${cur.title} may be too tight`,
+        detail:`You need about ${shortBy} more minute${shortBy===1?"":"s"} after ${prev.title}, including travel time.`
+      });
+    } else if (curStart-needed < 15) {
+      warnings.push({
+        severity:"medium",
+        icon:"🚃",
+        title:`Very little buffer before ${cur.title}`,
+        detail:`Only ${curStart-needed} minute${curStart-needed===1?"":"s"} of spare time after travel.`
+      });
+    }
+  }
+
+  if (rows.length >= 9) warnings.push({
+    severity:"medium",icon:"🗓️",title:"This is a very full day",
+    detail:`You have ${rows.length} activities planned. Consider moving a few to another day.`
+  });
+
+  fixed.forEach(item=>{
+    const place=linkedPlaceV4(item,t);
+    const hours=parseClockRangeV4(place?.openingHours||"");
+    const start=minutesFromTime(item.time);
+    if (hours && (start < hours.start || start > hours.end)) {
+      warnings.push({
+        severity:"high",icon:"🕐",title:`Check opening hours for ${place.name}`,
+        detail:`You planned ${formatTimeV3(item.time)}, while the saved hours are ${place.openingHours}.`
+      });
+    }
+  });
+
+  return warnings;
+}
+
+function expenseAnalyticsV4(t=trip()) {
+  const total=spent(t);
+  const days=daysBetween(t.startDate,t.endDate);
+  const byDate={};
+  const byPayment={};
+
+  t.expenses.forEach(e=>{
+    byDate[e.date]=(byDate[e.date]||0)+Number(e.amount||0);
+    const payment=e.payment||"Other";
+    byPayment[payment]=(byPayment[payment]||0)+Number(e.amount||0);
+  });
+
+  const recordedDates=Object.keys(byDate);
+  const averageRecordedDay=recordedDates.length?total/recordedDates.length:0;
+  const projected=recordedDates.length?averageRecordedDay*days:0;
+  const biggest=[...t.expenses].sort((a,b)=>Number(b.amount)-Number(a.amount))[0]||null;
+  const expensiveDay=Object.entries(byDate).sort((a,b)=>b[1]-a[1])[0]||null;
+  const remaining=Math.max(0,Number(t.totalBudget||0)-total);
+  const remainingDays=Math.max(1,remainingTripDays(t)||days);
+
+  return {
+    total,days,byDate,byPayment,recordedDates,averageRecordedDay,projected,biggest,expensiveDay,
+    remaining,remainingPerDay:remaining/remainingDays,
+    forecastOver:Number(t.totalBudget||0)>0 && projected>Number(t.totalBudget||0)
+  };
+}
+
+function healthCheckV4(t=trip()) {
+  const items=[];
+  const add=(severity,icon,title,detail,view,sub)=>items.push({severity,icon,title,detail,view,sub});
+
+  const emptyDays=allDates(t).filter(d=>!activitiesOn(d,t).length);
+  if (emptyDays.length) add("low","🗓️",`${emptyDays.length} itinerary day${emptyDays.length===1?" is":"s are"} empty`,"That can be intentional, but Ichigo is flagging it so you can review.", "plan","itinerary");
+
+  const scheduleWarnings=allDates(t).flatMap(d=>scheduleWarningsV4(d,t).map(x=>({...x,date:d})));
+  if (scheduleWarnings.length) add(
+    scheduleWarnings.some(x=>x.severity==="high")?"high":"medium",
+    "⏰",`${scheduleWarnings.length} schedule warning${scheduleWarnings.length===1?"":"s"}`,
+    "Check overlaps, travel buffers and saved opening hours.","plan","itinerary"
+  );
+
+  const mustGo=t.places.filter(p=>p.priority==="Must go"&&!p.visited);
+  const unplannedMustGo=mustGo.filter(p=>!t.itinerary.some(a=>`${a.title} ${a.place}`.toLowerCase().includes(String(p.name).toLowerCase())));
+  if(unplannedMustGo.length)add("medium","❤️",`${unplannedMustGo.length} must-go place${unplannedMustGo.length===1?" isn't":"s aren't"} in the itinerary`,unplannedMustGo.slice(0,3).map(x=>x.name).join(" · "),"plan","places");
+
+  const pendingBookings=t.bookings.filter(b=>!["Confirmed","Cancelled"].includes(b.status));
+  if(pendingBookings.length)add("medium","🎟️",`${pendingBookings.length} booking${pendingBookings.length===1?" needs":"s need"} attention`,"Saved or pending bookings may still need confirmation.","plan","bookings");
+
+  const packLeft=t.packing.filter(x=>!x.done).length;
+  if(packLeft)add(status(t)==="active"?"high":"low","🧳",`${packLeft} packing item${packLeft===1?"":"s"} left`,"Finish packing before you leave.","plan","packing");
+
+  const overdue=dueTasks(t);
+  if(overdue.length)add("high","✅",`${overdue.length} pre-trip task${overdue.length===1?" is":"s are"} due or overdue`,overdue.slice(0,3).map(x=>x.name).join(" · "),"plan","before");
+
+  const analytics=expenseAnalyticsV4(t);
+  if(t.totalBudget>0&&analytics.total>t.totalBudget)add("high","💸","Trip budget exceeded",`You're ${money(analytics.total-t.totalBudget)} over the current budget.`,"spend","budget");
+  else if(analytics.forecastOver)add("medium","📈","Current spending pace may exceed the budget",`Recorded-day average projects roughly ${money(analytics.projected)} for the trip.`,"spend","analytics");
+
+  if(!t.essentials?.contacts?.length)add("medium","☎️","No emergency contact saved","Add at least one contact that remains available offline.","plan","essentials");
+  if(!t.essentials?.hotelAddress && t.bookings.some(b=>b.type==="Hotel"))add("low","🏨","Hotel address isn't in Offline Essentials","Saving it there makes arrival day easier without data.","plan","essentials");
+
+  const expiring=t.essentials?.documents?.filter(d=>d.expiryDate&&d.expiryDate<=t.endDate)||[];
+  if(expiring.length)add("high","📄",`${expiring.length} document${expiring.length===1?"":"s"} expire by the end of this trip`,expiring.slice(0,3).map(x=>x.name).join(" · "),"plan","essentials");
+
+  const weights={high:15,medium:8,low:4};
+  const score=Math.max(0,100-items.reduce((s,x)=>s+(weights[x.severity]||5),0));
+  return {score,items,scheduleWarnings};
+}
+
+function tripStageLabelV4(t) {
+  if(t.archived)return"Archived";
+  return tripStageLabel(t);
+}
+
+/* ---------- Personal Home / Travel Shelf ---------- */
+function renderHome() {
+  const t=trip(), st=status(t), s=spent(t), pack=t.packing.filter(x=>x.done).length, health=healthCheckV4(t);
+  const packPct=t.packing.length?Math.round(pack/t.packing.length*100):0;
+  const upcoming=[...t.itinerary].filter(x=>!x.skipped).sort(activitySort).find(x=>`${x.date} ${x.time||"23:59"}`>=`${isoToday()} 00:00`)||[...t.itinerary].filter(x=>!x.skipped).sort(activitySort)[0];
+  const due=dueTasks(t);
+  const countdown=st==="planning"?`${Math.max(0,daysUntil(t.startDate))} days to go! 🌸`:st==="active"?`DAY ${dayNo(isoToday(),t)} · ${t.cityLabel} 🍓`:`${daysBetween(t.startDate,t.endDate)} days · saved forever 📖`;
+
+  const shelfTrips=state.trips.map(ensureTripV4).filter(x=>{
+    if(state.shelfFilter==="all")return !x.archived;
+    if(state.shelfFilter==="archived")return x.archived;
+    if(x.archived)return false;
+    return tripStageLabel(x).toLowerCase()===state.shelfFilter;
+  });
+
+  const allStats=personalTravelStatsV4();
+
+  main.innerHTML=`
+    <section class="hero-card ${t.coverKey?"has-cover":""}">
+      ${t.coverKey?`<div class="hero-cover-photo" data-file-key="${t.coverKey}"></div>`:""}
+      <div class="hero-content"><h1>${esc(t.title)} ${esc(t.countryEmoji)}</h1><p class="hero-countdown">${countdown}</p><p class="hero-dates">${nice(t.startDate)} – ${nice(t.endDate,{month:"short",day:"numeric",year:"numeric"})}</p></div>
+      <div class="hero-progress" style="--progress:${pct(t)}%"><span>${pct(t)}%</span></div>
+      <div class="hero-stats">
+        <div class="hero-stat"><strong>🗓 ${t.itinerary.length}</strong><small>Plans</small></div>
+        <div class="hero-stat"><strong>📍 ${t.places.length}</strong><small>Places</small></div>
+        <div class="hero-stat"><strong>🎟 ${t.bookings.length}</strong><small>Bookings</small></div>
+        <div class="hero-stat"><strong>💰 ${money(t.totalBudget)}</strong><small>Budget</small></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <button class="health-summary-v4 ${health.score<70?"needs-attention":""}" data-action="open-health-v4">
+        <div class="health-ring-v4" style="--health:${health.score}%"><strong>${health.score}</strong></div>
+        <div><span class="eyebrow">TRIP HEALTH</span><h3>${health.items.length?`${health.items.length} thing${health.items.length===1?"":"s"} to review`:"You're looking ready ✨"}</h3><p>${health.items[0]?esc(health.items[0].title):"No major planning issues detected."}</p></div>
+        <span>›</span>
+      </button>
+    </section>
+
+    ${due.length?`<section class="section"><button class="notice-card danger" style="width:100%;text-align:left" data-action="open-feature" data-feature="before"><span class="notice-icon">⏰</span><span><strong>${due.length} pre-trip task${due.length===1?" is":"s are"} due</strong><p>${esc(due.slice(0,2).map(x=>x.name).join(" · "))}</p></span></button></section>`:""}
+
+    <section class="section"><div class="grid-2">
+      <button class="card mini-card" data-action="open-feature" data-feature="itinerary"><h3>Next Up</h3>${upcoming?`<div class="big-number" style="font-size:16px">${nice(upcoming.date,{weekday:"short",month:"short",day:"numeric"})}</div><div class="meta">${esc(upcoming.flexible?"Anytime":formatTimeV3(upcoming.time))} · ${esc(upcoming.title)}</div>`:`<div class="meta">No plans yet</div>`}</button>
+      <button class="card mini-card" data-action="open-feature" data-feature="budget"><h3>Budget</h3><div class="big-number">${money(Math.max(0,t.totalBudget-s))}</div><div class="meta">${remainingTripDays(t)?`${money(Math.max(0,t.totalBudget-s)/remainingTripDays(t))} / day left`:"Trip complete"}</div><div class="progress"><span style="width:${Math.min(100,t.totalBudget?s/t.totalBudget*100:0)}%"></span></div></button>
+      <button class="card mini-card" data-action="open-feature" data-feature="bookings"><h3>Bookings</h3><div class="big-number">${t.bookings.length}</div><div class="meta">${t.bookings.filter(x=>x.status==="Confirmed").length} confirmed</div></button>
+      <button class="card mini-card" data-action="open-feature" data-feature="packing"><h3>Packing</h3><div class="big-number">${packPct}%</div><div class="meta">${pack}/${t.packing.length} items</div><div class="progress"><span style="width:${packPct}%"></span></div></button>
+    </div></section>
+
+    <section class="section">
+      <div class="section-title"><h3>Your travel shelf</h3><div><button data-action="new-trip">＋ New</button><button data-action="trip-templates-v4">Templates</button></div></div>
+      <div class="chips shelf-filters">${[["all","All"],["upcoming","Upcoming"],["ongoing","Ongoing"],["completed","Completed"],["archived","Archived"]].map(([k,l])=>`<button class="chip ${state.shelfFilter===k?"active":""}" data-action="shelf-filter-v2" data-filter="${k}">${l}</button>`).join("")}</div>
+      <div class="travel-shelf">${shelfTrips.length?shelfTrips.map(x=>`
+        <button class="card shelf-card-v2" data-action="switch-trip" data-id="${x.id}">
+          <div class="shelf-cover">${x.coverKey?`<div class="shelf-cover-photo" data-file-key="${x.coverKey}"></div>`:""}<span class="shelf-flag">${esc(x.countryEmoji||"✈️")}</span><span class="shelf-status">${tripStageLabelV4(x)}</span></div>
+          <div class="shelf-body"><h3>${esc(x.title)}</h3><p>${nice(x.startDate)} – ${nice(x.endDate,{month:"short",day:"numeric",year:"numeric"})} · ${x.places.filter(p=>p.visited).length}/${x.places.length} places · ${x.memories.length} memories</p></div>
+        </button>`).join(""):empty("📚","No trips here yet","Create a trip or use one of your templates.")}</div>
+    </section>
+
+    <section class="card travel-stats-mini-v4">
+      <div><span>✈️</span><strong>${allStats.trips}</strong><small>Trips</small></div>
+      <div><span>🌏</span><strong>${allStats.destinations}</strong><small>Destinations</small></div>
+      <div><span>🗓️</span><strong>${allStats.days}</strong><small>Travel days</small></div>
+      <div><span>📍</span><strong>${allStats.visitedPlaces}</strong><small>Places visited</small></div>
+    </section>`;
+}
+
+/* ---------- Trip + Day Templates ---------- */
+function allTripTemplatesV4() {
+  const built=(window.ICHIGO_DATA?.tripTemplates||[]).map(x=>({...clone(x),source:"built-in"}));
+  const custom=(state.customTripTemplates||[]).map(x=>({...clone(x),source:"custom"}));
+  return [...built,...custom];
+}
+
+function tripTemplatesHTMLV4() {
+  const templates=allTripTemplatesV4();
+  return `<div class="template-grid-v4">
+    <button class="template-card-v4 blank" data-action="choose-trip-template-v4" data-template-id="blank"><span>＋</span><strong>Start blank</strong><small>Just dates, destination and currency</small></button>
+    ${templates.map(t=>`<div class="template-wrap-v4"><button class="template-card-v4" data-action="choose-trip-template-v4" data-template-id="${esc(t.id)}"><span>${esc(t.emoji||"🍓")}</span><strong>${esc(t.label)}</strong><small>${esc(t.description||"Reusable trip starter")}</small></button>${t.source==="custom"?`<button class="template-delete-v4" data-action="delete-trip-template-v4" data-template-id="${t.id}" aria-label="Delete template">✕</button>`:""}</div>`).join("")}
+  </div>`;
+}
+
+function newTrip() {
+  openModal("Create a Trip",tripTemplatesHTMLV4());
+}
+
+function tripTemplateFormV4(templateId="blank") {
+  const template=allTripTemplatesV4().find(x=>x.id===templateId)||{};
+  const defaults=template.defaults||{};
+  const start=dateOffset(isoToday(),30);
+  const end=dateOffset(start,Math.max(0,Number(template.days||3)-1));
+  return `<form id="tripTemplateCreateFormV4" data-template-id="${esc(templateId)}" class="form-grid">
+    ${templateId!=="blank"?`<div class="notice-card"><span class="notice-icon">${esc(template.emoji||"🍓")}</span><span><strong>${esc(template.label||"Template")}</strong><p>${esc(template.description||"")}</p></span></div>`:""}
+    <div class="form-row"><label>TRIP NAME</label><input name="title" required value="${esc(defaults.title||"")}" placeholder="Japan 2027"></div>
+    <div class="form-row"><label>DESTINATION</label><input name="destination" required value="${esc(defaults.destination||"")}" placeholder="Japan"></div>
+    <div class="form-row two"><div><label>START</label><input name="startDate" type="date" value="${start}" required></div><div><label>END</label><input name="endDate" type="date" value="${end}" required></div></div>
+    <div class="form-row two"><div><label>FLAG / EMOJI</label><input name="countryEmoji" value="${esc(defaults.countryEmoji||template.emoji||"✈️")}"></div><div><label>CURRENCY</label><select name="baseCurrency">${currencyOptions(defaults.baseCurrency||state.settings.defaultTripCurrency)}</select></div></div>
+    <button class="btn primary">Create trip</button>
+  </form>`;
+}
+
+function createTripFromTemplateV4(templateId,data) {
+  const template=allTripTemplatesV4().find(x=>x.id===templateId)||{};
+  const t=ensureTripV4({
+    id:uuid(),title:data.title.trim(),destination:data.destination.trim(),cityLabel:data.destination.toUpperCase(),
+    countryEmoji:data.countryEmoji||template.emoji||"✈️",startDate:data.startDate,endDate:data.endDate,
+    baseCurrency:data.baseCurrency,homeCurrency:state.settings.homeCurrency,totalBudget:Number(template.totalBudget||0),
+    dailyBudget:Number(template.dailyBudget||0),categoryBudgets:clone(template.categoryBudgets||{}),coverKey:"",
+    theme:"inherit",accentColor:"",archived:false,
+    travelers:[{id:uuid(),name:state.settings.travelerName||"Me",role:"Owner",emoji:"🙂"}],
+    itinerary:[],places:[],bookings:[],packing:[],preTrip:[],expenses:[],memories:[],inbox:[]
+  });
+
+  const packing=template.packing || (template.packingTemplate?window.ICHIGO_DATA?.packingTemplates?.[template.packingTemplate]:null) || [];
+  packing.forEach(row=>{
+    if(Array.isArray(row))t.packing.push({id:uuid(),category:row[0],name:row[1],quantity:Number(row[2]||1),done:false});
+    else t.packing.push({id:uuid(),...clone(row),done:false});
+  });
+
+  (template.preTrip||[]).forEach((x,index)=>t.preTrip.push({
+    id:uuid(),...clone(x),done:false,
+    dueDate:x.dueDate||dateOffset(t.startDate,-Math.max(2,21-index*2))
+  }));
+
+  if(template.useDefaultPreTrip && !t.preTrip.length){
+    (window.ICHIGO_DATA?.preTripTemplate||[]).forEach((x,index)=>t.preTrip.push({
+      id:uuid(),...clone(x),done:false,dueDate:dateOffset(t.startDate,-Math.max(2,30-index*3))
+    }));
+  }
+
+  (template.starterDay||[]).forEach((x,index)=>t.itinerary.push({
+    id:uuid(),date:t.startDate,time:x.time||"",title:x.title||"Activity",place:x.place||"",
+    type:x.type||"place",notes:x.notes||"",duration:Number(x.duration||60),
+    travelTime:Number(x.travelTime||0),flexible:!!x.flexible,order:index,completed:false,skipped:false
+  }));
+
+  state.trips.push(t);
+  state.currentTripId=t.id;
+  state.currentView="home";
+  return t;
+}
+
+function saveTripTemplateModalV4() {
+  openModal("Save Trip as Template",`<form id="saveTripTemplateFormV4" class="form-grid">
+    <div class="form-row"><label>TEMPLATE NAME</label><input name="label" required value="${esc(trip().title)} template"></div>
+    <div class="form-row"><label>DESCRIPTION</label><input name="description" value="Based on ${esc(trip().title)}"></div>
+    <p class="meta">Ichigo saves your packing list, Before You Go checklist, category budgets and the structure of the first planned day. Personal expenses, bookings, photos and document files are not copied.</p>
+    <button class="btn primary">Save reusable template</button>
+  </form>`);
+}
+
+function dayTemplateSaveModalV4(date) {
+  openModal("Save Day Template",`<form id="saveDayTemplateFormV4" data-date="${date}" class="form-grid"><div class="form-row"><label>TEMPLATE NAME</label><input name="name" required value="Day ${dayNo(date)} template"></div><p class="meta">Times, activity types, durations and notes are saved. Completion status is not.</p><button class="btn primary">Save day template</button></form>`);
+}
+
+function dayTemplateApplyModalV4(date) {
+  const arr=state.dayTemplates||[];
+  openModal("Use Day Template",arr.length?`<div class="template-grid-v4">${arr.map(x=>`<div class="template-wrap-v4"><button class="template-card-v4" data-action="apply-day-template-v4" data-template-id="${x.id}" data-date="${date}"><span>🗓️</span><strong>${esc(x.name)}</strong><small>${x.activities.length} activities</small></button><button class="template-delete-v4" data-action="delete-day-template-v4" data-template-id="${x.id}">✕</button></div>`).join("")}</div>`:empty("🗓️","No day templates yet","Save a planned day first, then reuse its structure on another trip or date."));
+}
+
+/* ---------- Smart Itinerary ---------- */
+function itineraryHTML(date) {
+  const t=trip();
+  if(!allDates(t).includes(date))date=activeDate(t);
+  state.activeItineraryDate=date;
+
+  const items=activitiesOn(date,t);
+  const totalDuration=items.filter(x=>!x.skipped).reduce((s,x)=>s+Number(x.duration||0),0);
+  const travel=items.filter(x=>!x.skipped).reduce((s,x)=>s+Number(x.travelTime||0),0);
+  const collapsed=!!state.collapsedDays[`${t.id}:${date}`];
+  const warnings=scheduleWarningsV4(date,t);
+
+  return `<div class="section-title"><h3>🗓️ Itinerary</h3><div class="section-actions-v3"><button data-action="save-day-template-v4" data-date="${date}">Save day</button><button data-action="use-day-template-v4" data-date="${date}">Use template</button><button data-action="duplicate-day-v3" data-date="${date}">Duplicate</button><button data-action="quick-add-type" data-type="activity">＋ Activity</button></div></div>
+  <div class="chips">${allDates(t).map(d=>`<button class="chip ${d===date?"active":""}" data-action="show-itinerary-date-v3" data-date="${d}">Day ${dayNo(d,t)} · ${nice(d,{month:"short",day:"numeric"})}</button>`).join("")}</div>
+  ${warnings.length?`<div class="schedule-warnings-v4">${warnings.map(w=>`<div class="notice-card ${w.severity==="high"?"danger":""}"><span class="notice-icon">${w.icon}</span><span><strong>${esc(w.title)}</strong><p>${esc(w.detail)}</p></span></div>`).join("")}</div>`:""}
+  <div id="itineraryDay"><div class="day-summary day-summary-v3" data-action="toggle-day-collapse-v3" data-date="${date}" role="button" tabindex="0" aria-expanded="${!collapsed}"><div><strong>${items.length}</strong><small>activities</small></div><div><strong>${formatDuration(totalDuration)||"—"}</strong><small>planned</small></div><div><strong>${formatDuration(travel)||"—"}</strong><small>travel time</small></div><span>${collapsed?"Show":"Hide"} day</span></div>
+  ${collapsed?`<div class="collapsed-day-v3">Day collapsed · ${items.length} activities</div>`:items.length?`<div data-itinerary-date="${date}">${items.map(i=>`${i.travelTime&&!i.skipped?`<div class="travel-block-v3">🚃 ${formatDuration(i.travelTime)} travel before next stop</div>`:""}${activityCardV2(i)}`).join("")}</div>`:empty("🗓️","Nothing planned yet","Add an activity or use a saved day template.","activity")}</div>`;
+}
+
+function activityCardV2(i) {
+  return `<article class="itinerary-card ${i.completed?"activity-complete-v3":""} ${i.skipped?"activity-skipped-v4":""}" data-activity-id="${i.id}" data-date="${i.date}">
+    <button class="drag-handle" data-action="drag-activity-v2" data-id="${i.id}" aria-label="Drag ${esc(i.title)} to reorder">⋮⋮</button>
+    <div class="activity-time">${i.flexible?"Anytime":esc(formatTimeV3(i.time||""))}${i.delayMinutes?`<small>+${i.delayMinutes}m</small>`:""}</div>
+    <div class="activity-main"><h4>${i.completed?"✓ ":""}${i.skipped?"↷ ":""}${ICON[i.type]||"📍"} ${esc(i.title)}</h4><p>${esc(i.place||i.address||"")}${i.notes?` · ${esc(i.notes)}`:""}</p>
+      <div class="activity-meta">${i.duration?`<span class="badge gray">⏱ ${formatDuration(i.duration)}</span>`:""}${i.flexible?`<span class="badge gold">Flexible</span>`:""}${i.completed?`<span class="badge green">Done</span>`:""}${i.skipped?`<span class="badge gray">Skipped</span>`:""}${i.delayMinutes?`<span class="badge">Delayed ${i.delayMinutes}m</span>`:""}</div>
+      <div class="activity-actions"><button class="tiny-btn" data-action="move-activity-step-v3" data-id="${i.id}" data-step="-1">↑</button><button class="tiny-btn" data-action="move-activity-step-v3" data-id="${i.id}" data-step="1">↓</button><button class="tiny-btn" data-action="edit-activity-v2" data-id="${i.id}">Edit</button><button class="tiny-btn" data-action="duplicate-activity-v2" data-id="${i.id}">Duplicate</button><button class="tiny-btn" data-action="move-activity-v2" data-id="${i.id}">Move day</button>${(i.address||i.lat||i.place)?`<a class="tiny-btn" href="${esc(preferredMapUrlV3(i))}" target="_blank" rel="noopener">Map</a>`:""}<button class="tiny-btn danger" data-action="delete-v2" data-collection="itinerary" data-id="${i.id}">Delete</button></div>
+    </div></article>`;
+}
+
+/* ---------- Today Mode 4 ---------- */
+function timelineStateV3(date,t=trip()) {
+  const items=activitiesOn(date,t), activeItems=items.filter(x=>!x.skipped), isToday=date===isoToday(), now=new Date(), nowMin=now.getHours()*60+now.getMinutes();
+  let current=null,next=null;const overdue=[];
+  if(!isToday){next=activeItems.find(x=>!x.completed)||activeItems[0]||null;return{items,current,next,overdue,isToday,nowMin}}
+  for(const item of activeItems){
+    if(item.completed)continue;
+    const start=minutesFromTime(item.time),end=start==null?null:start+Number(item.duration||60);
+    if(start!=null&&nowMin>=start&&nowMin<end&&!current)current=item;
+    else if(start!=null&&nowMin>=end)overdue.push(item);
+    else if(start!=null&&nowMin<start&&!next)next=item;
+  }
+  if(!current&&!next)next=activeItems.find(x=>!x.completed&&x.flexible)||null;
+  return{items,current,next,overdue,isToday,nowMin};
+}
+
+function renderToday() {
+  const t=trip(),date=activeDate(t),ts=timelineStateV3(date,t),daily=spentDate(date,t),bookings=t.bookings.filter(b=>b.date===date).sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99"));
+  const focus=ts.current||ts.next;
+  const warnings=scheduleWarningsV4(date,t);
+
+  main.innerHTML=`<section class="today-header"><p class="eyebrow" style="color:#8b3044!important">${esc(t.cityLabel||t.destination)} · DAY ${dayNo(date,t)}</p><h1>${nice(date,{weekday:"long",month:"long",day:"numeric"})}</h1><p>${ts.isToday?"Your live travel day":"Previewing Today Mode"}</p></section>
+    ${focus?`<section class="card today-focus"><div class="badge ${ts.current?"green":""}">${ts.current?"HAPPENING NOW":"NEXT"}</div><div class="countdown">${ts.current?`${Math.max(1,Math.ceil((minutesFromTime(focus.time)+Number(focus.duration||60)-ts.nowMin)))} min left`:ts.isToday?countdownLabelV3(focus,ts.nowMin):"Up next"}</div><h3>${ICON[focus.type]||"📍"} ${esc(focus.title)}</h3><p>${esc(focus.place||focus.address||"")} · ${focus.flexible?"Anytime":esc(formatTimeV3(focus.time))}</p>
+      <div class="activity-actions today-primary-actions-v4"><button class="tiny-btn primary" data-action="arrived-v3" data-id="${focus.id}">📍 I'm here</button><button class="tiny-btn" data-action="complete-activity-v3" data-id="${focus.id}">✓ Done</button><button class="tiny-btn" data-action="delay-activity-v4" data-id="${focus.id}" data-minutes="15">+15m</button><button class="tiny-btn" data-action="delay-activity-v4" data-id="${focus.id}" data-minutes="30">+30m</button><button class="tiny-btn" data-action="skip-activity-v4" data-id="${focus.id}">Skip</button><a class="tiny-btn" href="${esc(preferredMapUrlV3(focus))}" target="_blank" rel="noopener">Map</a></div>
+      <div class="activity-actions today-secondary-actions-v4"><button class="tiny-btn" data-action="activity-note-v4" data-id="${focus.id}">📝 Note</button><button class="tiny-btn" data-action="activity-expense-v4" data-id="${focus.id}">💸 Expense</button><button class="tiny-btn" data-action="activity-memory-v4" data-id="${focus.id}">📸 Memory</button>${focus.delayMinutes?`<button class="tiny-btn" data-action="reset-delay-v4" data-id="${focus.id}">Reset delay</button>`:""}</div>
+    </section>`:empty("🌸","A free day","Nothing is scheduled for this day yet.","activity")}
+    ${warnings.length?`<section class="notice-card ${warnings.some(x=>x.severity==="high")?"danger":""}" style="margin-top:10px"><span class="notice-icon">💡</span><span><strong>${warnings.length} schedule note${warnings.length===1?"":"s"} for today</strong><p>${esc(warnings[0].title)}</p></span></section>`:""}
+    ${ts.overdue.length?`<section class="notice-card danger" style="margin-top:10px"><span class="notice-icon">⏰</span><span><strong>${ts.overdue.length} unfinished item${ts.overdue.length===1?"":"s"} passed their planned time.</strong><p>Delay, skip or mark them done without rebuilding the day.</p></span></section>`:""}
+    <section class="card" style="padding:16px;margin-top:12px"><div class="section-title"><h3>Today’s timeline</h3><span class="meta">${ts.items.filter(x=>x.completed).length}/${ts.items.filter(x=>!x.skipped).length} done · ${ts.items.filter(x=>x.skipped).length} skipped</span></div><div class="today-timeline-v3">${ts.items.length?ts.items.map(i=>`<article class="today-line-v3 ${i.completed?"done":""} ${i.skipped?"skipped-v4":""} ${ts.current?.id===i.id?"current":""}"><span>${i.flexible?"Anytime":esc(formatTimeV3(i.time))}</span><div><strong>${i.skipped?"↷ ":""}${esc(i.title)}</strong><small>${esc(i.place||"")}${i.delayMinutes?` · +${i.delayMinutes}m`:""}</small></div><div class="today-row-tools-v4"><button class="tiny-btn" data-action="complete-activity-v3" data-id="${i.id}">${i.completed?"Undo":"Done"}</button><button class="tiny-btn" data-action="skip-activity-v4" data-id="${i.id}">${i.skipped?"Restore":"Skip"}</button></div></article>`).join(""):"<p class='meta'>No activities yet.</p>"}</div></section>
+    <section class="card" style="padding:16px;margin-top:12px;background:linear-gradient(145deg,#fff,#fff0f3)"><div class="section-title"><h3>Today’s spending</h3><span>${money(daily)} / ${money(t.dailyBudget)}</span></div><div class="progress"><span style="width:${Math.min(100,t.dailyBudget?daily/t.dailyBudget*100:0)}%"></span></div></section>
+    ${bookings.length?`<section class="section"><div class="section-title"><h3>🎟 Today’s bookings</h3><button data-action="open-bookings-v3">View all</button></div><div class="list">${bookingRows(bookings.slice(0,3))}</div></section>`:""}
+    <section class="section"><div class="grid-3"><button class="btn soft" data-action="quick-add-type" data-type="expense">＋ Expense</button><button class="btn soft" data-action="open-feature" data-feature="converter">💱 Convert</button><button class="btn soft" data-action="today-essentials-v2">🆘 Essentials</button></div></section>`;
+}
+
+/* ---------- Expense Analytics ---------- */
+function renderSpend() {
+  const menu=[["budget","💰","Budget"],["expenses","🧾","Expenses"],["analytics","📈","Analytics"],["converter","💱","Converter"],["split","💸","Split"]];
+  main.innerHTML=`<div class="page-head"><div><p class="eyebrow">SPEND</p><h1>Trip money</h1><p>${esc(trip().title)}</p></div><button class="btn soft" data-action="quick-add-type" data-type="expense">＋ Expense</button></div><div class="chips">${menu.map(([k,e,l])=>`<button class="chip ${state.spendView===k?"active":""}" data-action="set-spend-view" data-feature="${k}">${e} ${l}</button>`).join("")}</div><section class="section">${spendHTML(state.spendView)}</section>`;
+}
+
+function spendHTML(v) {
+  return v==="expenses"?expensesHTML():v==="analytics"?expenseAnalyticsHTMLV4():v==="converter"?converterHTML():v==="split"?splitHTML():budgetHTML();
+}
+
+function expenseAnalyticsHTMLV4() {
+  const t=trip(),a=expenseAnalyticsV4(t);
+  const dates=allDates(t),maxDay=Math.max(1,...dates.map(d=>Number(a.byDate[d]||0)));
+  const paymentMax=Math.max(1,...Object.values(a.byPayment));
+  return `<div class="section-title"><h3>📈 Expense Analytics</h3><span class="meta">${t.expenses.length} entries</span></div>
+    ${a.forecastOver?`<div class="notice-card danger"><span class="notice-icon">📈</span><span><strong>Budget forecast warning</strong><p>Based on recorded spending days, the trip projects to about ${money(a.projected)}, above your ${money(t.totalBudget)} budget.</p></span></div>`:""}
+    <div class="analytics-grid-v4">
+      <div class="card analytics-stat-v4"><small>Total spent</small><strong>${money(a.total)}</strong></div>
+      <div class="card analytics-stat-v4"><small>Avg recorded day</small><strong>${money(a.averageRecordedDay)}</strong></div>
+      <div class="card analytics-stat-v4"><small>Remaining / day</small><strong>${money(a.remainingPerDay)}</strong></div>
+      <div class="card analytics-stat-v4"><small>Projected total</small><strong>${a.recordedDates.length?money(a.projected):"—"}</strong></div>
+    </div>
+    <div class="grid-2" style="margin-top:10px">
+      <div class="card analytics-feature-v4"><span>💎 Biggest expense</span><strong>${a.biggest?money(a.biggest.amount):"—"}</strong><small>${a.biggest?esc(a.biggest.merchant||a.biggest.title):"No expenses yet"}</small></div>
+      <div class="card analytics-feature-v4"><span>🔥 Most expensive day</span><strong>${a.expensiveDay?money(a.expensiveDay[1]):"—"}</strong><small>${a.expensiveDay?nice(a.expensiveDay[0]):"No spending days yet"}</small></div>
+    </div>
+    <div class="card analytics-panel-v4"><div class="section-title"><h3>Daily spending</h3></div>${dates.map(d=>`<div class="analytics-bar-row-v4"><span>Day ${dayNo(d,t)}</span><div><i style="width:${Number(a.byDate[d]||0)/maxDay*100}%"></i></div><small>${money(a.byDate[d]||0)}</small></div>`).join("")}</div>
+    <div class="card analytics-panel-v4"><div class="section-title"><h3>Payment methods</h3></div>${Object.keys(a.byPayment).length?Object.entries(a.byPayment).sort((a,b)=>b[1]-a[1]).map(([name,val])=>`<div class="analytics-bar-row-v4"><span>${esc(name)}</span><div><i style="width:${val/paymentMax*100}%"></i></div><small>${money(val)}</small></div>`).join(""):`<p class="meta">No expense data yet.</p>`}</div>`;
+}
+
+/* ---------- Offline Document Vault ---------- */
+function documentFormHTMLV3(item={}) {
+  const cats=window.ICHIGO_DATA?.documentCategories||["Passport","Visa","Insurance","Transport","Hotel","Ticket","Medical","Other"];
+  return `<form id="documentFormV4" data-edit-id="${item.id||""}" class="form-grid">
+    <div class="form-row"><label>DOCUMENT</label><input name="name" required value="${esc(item.name||"")}" placeholder="Travel insurance"></div>
+    <div class="form-row two"><div><label>CATEGORY</label><select name="category">${cats.map(x=>`<option ${item.category===x?"selected":""}>${esc(x)}</option>`).join("")}</select></div><div><label>EXPIRY DATE</label><input name="expiryDate" type="date" value="${item.expiryDate||""}"></div></div>
+    <label class="check-inline-v3"><input name="important" type="checkbox" ${item.important?"checked":""}> Pin as important</label>
+    <div class="form-row"><label>REFERENCE / NOTE</label><textarea name="reference" placeholder="Booking reference, policy note, where the original is kept...">${esc(item.reference||"")}</textarea></div>
+    <div class="form-row"><label>OFFLINE FILE / PHOTO</label><input name="attachment" type="file" accept="image/*,.pdf"><small class="inline-help">${item.fileKey?`Current file: ${esc(item.fileName||"attachment")} · leave blank to keep it.`:"Stored only on this device in IndexedDB."}</small></div>
+    <button class="btn primary">Save to Document Vault</button>
+  </form>`;
+}
+
+function essentialsHTMLV2() {
+  const e=trip().essentials,docs=[...(e.documents||[])].sort((a,b)=>Number(b.important)-Number(a.important)||(a.expiryDate||"9999").localeCompare(b.expiryDate||"9999"));
+  return `<div class="section-title"><h3>🆘 Offline Travel Essentials</h3><button data-action="edit-essentials-v2">Edit</button></div>
+  <div class="notice-card success"><span class="notice-icon">✈️</span><span><strong>Designed for offline access</strong><p>Hotel, insurance, contacts, your document vault and saved phrases stay on this device.</p></span></div>
+  <div class="essentials-grid" style="margin-top:10px"><div class="card essential-card"><h3>🏨 Stay</h3><div class="essential-value"><strong>${esc(e.hotelName||"No hotel saved")}</strong>${e.hotelAddress?`\n${esc(e.hotelAddress)}`:""}${e.hotelPhone?`\n☎ ${esc(e.hotelPhone)}`:""}</div></div><div class="card essential-card"><h3>🛡️ Insurance</h3><div class="essential-value"><strong>${esc(e.insuranceProvider||"No insurance saved")}</strong>${e.insurancePolicy?`\nPolicy: ${esc(e.insurancePolicy)}`:""}${e.insurancePhone?`\n☎ ${esc(e.insurancePhone)}`:""}</div></div><div class="card essential-card"><h3>🩺 Medical / safety notes</h3><div class="essential-value">${esc(e.medicalNotes||"No notes saved")}</div></div><div class="card essential-card"><h3>🚃 Transport notes</h3><div class="essential-value">${esc(e.transitNotes||"No notes saved")}</div></div></div>
+  <section class="section"><div class="section-title"><h3>Emergency contacts</h3><button data-action="add-contact-v3">＋ Contact</button></div><div class="card" style="padding:8px 13px">${e.contacts.length?e.contacts.map(c=>`<div class="contact-row"><div class="row-icon">☎️</div><div class="row-main"><h4>${esc(c.name)}</h4><p>${esc(c.phone)} ${c.note?`· ${esc(c.note)}`:""}</p></div><button class="tiny-btn" data-action="edit-contact-v3" data-id="${c.id}">Edit</button><button class="tiny-btn danger" data-action="delete-essential-v2" data-kind="contacts" data-id="${c.id}">✕</button></div>`).join(""):`<div class="empty"><p>Add family, insurance or important contacts.</p></div>`}</div></section>
+  <section class="section"><div class="section-title"><div><h3>🔐 Document Vault</h3><p class="meta">Local only · available offline</p></div><button data-action="add-document-v3">＋ Document</button></div><div class="document-vault-v4">${docs.length?docs.map(d=>`<article class="card document-card-v4 ${d.important?"important":""}">${d.fileKey?`<button class="document-file-v4" data-action="open-file-v2" data-file-key="${d.fileKey}" data-file-kind="${String(d.fileName||"").toLowerCase().endsWith(".pdf")?"file":"image"}">${String(d.fileName||"").toLowerCase().endsWith(".pdf")?"📄":"🖼️"}</button>`:`<div class="document-file-v4">📄</div>`}<div class="row-main"><div class="badge gray">${esc(d.category)}</div><h4>${d.important?"⭐ ":""}${esc(d.name)}</h4><p>${esc(d.reference||"No reference note")}</p>${d.expiryDate?`<small class="${d.expiryDate<=trip().endDate?"vault-expiry-warning-v4":""}">Expires ${nice(d.expiryDate)}</small>`:""}${d.fileName?`<small>Offline file: ${esc(d.fileName)}</small>`:""}</div><div class="document-actions-v4"><button class="tiny-btn" data-action="edit-document-v3" data-id="${d.id}">Edit</button><button class="tiny-btn danger" data-action="delete-document-v4" data-id="${d.id}">Delete</button></div></article>`).join(""):empty("🔐","Your vault is empty","Add tickets, insurance files, hotel PDFs or other travel references you want offline.")}</div><p class="inline-help">For privacy, store only documents you are comfortable keeping locally on this device. Ichigo does not upload them anywhere.</p></section>
+  <section class="section"><div class="section-title"><h3>Useful phrases</h3><button data-action="add-phrase-v3">＋ Phrase</button></div><div class="list">${e.phrases.length?e.phrases.map(p=>`<div class="phrase-card"><button style="all:unset;cursor:pointer;display:block;width:100%" data-action="copy-text-v2" data-text="${esc(p.jp)}"><div class="jp">${esc(p.jp)}</div><div class="romaji">${esc(p.romaji||"")}</div><div class="translation">${esc(p.en||"")}</div></button><div class="activity-actions"><button class="tiny-btn" data-action="edit-phrase-v3" data-id="${p.id}">Edit</button><button class="tiny-btn danger" data-action="delete-essential-v2" data-kind="phrases" data-id="${p.id}">Delete</button></div></div>`).join(""):empty("💬","No phrases saved","Add useful phrases for offline access.")}</div></section>`;
+}
+
+/* ---------- Health + Stats ---------- */
+function healthHTMLV4() {
+  const h=healthCheckV4(), grouped={high:h.items.filter(x=>x.severity==="high"),medium:h.items.filter(x=>x.severity==="medium"),low:h.items.filter(x=>x.severity==="low")};
+  return `<div class="health-hero-v4"><div class="health-ring-v4 large" style="--health:${h.score}%"><strong>${h.score}</strong><small>/100</small></div><div><p class="eyebrow">TRIP HEALTH</p><h2>${h.score>=90?"Looking sweet ✨":h.score>=70?"Almost ready 🌸":"A few things need attention"}</h2><p>${h.items.length?`${h.items.length} item${h.items.length===1?"":"s"} worth reviewing before or during the trip.`:"Ichigo didn't find any planning issues right now."}</p></div></div>
+    ${["high","medium","low"].map(level=>grouped[level].length?`<section class="section"><div class="section-title"><h3>${level==="high"?"Needs attention":level==="medium"?"Worth checking":"Nice to review"}</h3><span class="badge ${level==="high"?"danger-badge-v4":"gray"}">${grouped[level].length}</span></div><div class="list">${grouped[level].map(x=>`<button class="health-item-v4 ${level}" data-action="health-jump-v4" data-view="${x.view}" data-sub="${x.sub}"><span>${x.icon}</span><div><strong>${esc(x.title)}</strong><p>${esc(x.detail)}</p></div><b>›</b></button>`).join("")}</div></section>`:"").join("")}`;
+}
+
+function personalTravelStatsV4() {
+  const trips=(state.trips||[]).map(ensureTripV4).filter(x=>!x.archived);
+  const destinations=new Set(trips.map(x=>String(x.destination||"").trim().toLowerCase()).filter(Boolean));
+  return {
+    trips:trips.length,
+    destinations:destinations.size,
+    days:trips.reduce((s,x)=>s+daysBetween(x.startDate,x.endDate),0),
+    visitedPlaces:trips.reduce((s,x)=>s+x.places.filter(p=>p.visited).length,0),
+    memories:trips.reduce((s,x)=>s+x.memories.length,0),
+    totalExpenses:trips.reduce((s,x)=>s+spent(x),0)
+  };
+}
+
+function statsHTMLV4() {
+  const s=personalTravelStatsV4();
+  const trips=[...(state.trips||[])].map(ensureTripV4).sort((a,b)=>a.startDate.localeCompare(b.startDate));
+  const years=[...new Set(trips.map(x=>parseDate(x.startDate)?.getFullYear()).filter(Boolean))].sort();
+  return `<div class="stats-grid-v4">
+    <div class="card"><span>✈️</span><strong>${s.trips}</strong><small>Trips</small></div>
+    <div class="card"><span>🌏</span><strong>${s.destinations}</strong><small>Destinations</small></div>
+    <div class="card"><span>🗓️</span><strong>${s.days}</strong><small>Travel days</small></div>
+    <div class="card"><span>📍</span><strong>${s.visitedPlaces}</strong><small>Places visited</small></div>
+    <div class="card"><span>📸</span><strong>${s.memories}</strong><small>Memories</small></div>
+    <div class="card"><span>💴</span><strong>${s.totalExpenses?money(s.totalExpenses):"—"}</strong><small>Tracked spending*</small></div>
+  </div>
+  <p class="inline-help">*Spending is shown in the current trip currency and is only directly comparable when your trips use the same base currency.</p>
+  <section class="section"><div class="section-title"><h3>Travel calendar</h3></div>${years.length?years.map(year=>`<div class="card calendar-year-v4"><h3>${year}</h3>${trips.filter(x=>parseDate(x.startDate)?.getFullYear()===year).map(x=>`<button data-action="switch-trip" data-id="${x.id}"><span>${esc(x.countryEmoji||"✈️")}</span><div><strong>${esc(x.title)}</strong><small>${nice(x.startDate,{month:"short",day:"numeric"})} – ${nice(x.endDate,{month:"short",day:"numeric"})}</small></div><b>${x.archived?"Archived":tripStageLabel(x)}</b></button>`).join("")}</div>`).join(""):empty("🗓️","No travel calendar yet","Your trips will appear here automatically.")}</section>`;
+}
+
+function renderTrip() {
+  const menu=[["memories","📸","Journal"],["scrapbook","📖","Scrapbook"],["recap","📊","Trip Recap"],["health","💗","Health"],["stats","🌏","Stats"],["info","ℹ️","Trip Info"],["settings","⚙️","Settings"]];
+  main.innerHTML=`<div class="page-head"><div><p class="eyebrow">TRIP</p><h1>${esc(trip().title)}</h1><p>Your trip story and personal tools</p></div></div><div class="chips">${menu.map(([k,e,l])=>`<button class="chip ${state.tripView===k?"active":""}" data-action="set-trip-view" data-feature="${k}">${e} ${l}</button>`).join("")}</div><section class="section">${tripHTML(state.tripView)}</section>`;
+}
+
+function tripHTML(v) {
+  return v==="scrapbook"?scrapbookHTMLV2():v==="recap"?recapHTML():v==="health"?healthHTMLV4():v==="stats"?statsHTMLV4():v==="info"?infoHTML():v==="settings"?settingsHTML():memoriesHTML();
+}
+
+function infoHTML() {
+  const t=trip();
+  return `<div class="card" style="padding:16px"><div class="form-grid"><div class="form-row"><label>TRIP NAME</label><input id="infoTitleV3" value="${esc(t.title)}"></div><div class="form-row two"><div><label>DESTINATION</label><input id="infoDestinationV3" value="${esc(t.destination)}"></div><div><label>FLAG / EMOJI</label><input id="infoEmojiV3" value="${esc(t.countryEmoji||"✈️")}"></div></div><div class="form-row two"><div><label>START</label><input id="infoStartV3" type="date" value="${t.startDate}"></div><div><label>END</label><input id="infoEndV3" type="date" value="${t.endDate}"></div></div><div class="form-row two"><div><label>BASE CURRENCY</label><select id="infoCurrencyV3">${currencyOptions(t.baseCurrency)}</select></div><div><label>HOME CURRENCY</label><select id="infoHomeCurrencyV3">${currencyOptions(t.homeCurrency)}</select></div></div><div class="form-row two"><div><label>TRIP THEME</label><select id="infoThemeV3">${themeOptionsV3(t.theme)}</select></div><div><label>CUSTOM ACCENT</label><input id="infoAccentV3" type="color" value="${/^#[0-9a-f]{6}$/i.test(t.accentColor)?t.accentColor:"#ff6f91"}"></div></div><label class="check-inline-v3"><input id="useCustomAccentV3" type="checkbox" ${t.accentColor?"checked":""}> Use this custom accent for the trip</label><button class="btn primary" data-action="save-trip-info-v3">Save trip info</button></div></div>
+  <div class="card" style="padding:16px;margin-top:10px"><div class="section-title"><h3>Trip cover</h3><span class="meta">used on your Travel Shelf</span></div>${t.coverKey?`<div class="shelf-cover" style="border-radius:17px;margin-bottom:9px"><div class="shelf-cover-photo" data-file-key="${t.coverKey}"></div></div>`:""}<input id="tripCoverInputV2" type="file" accept="image/*"><button class="btn soft full" style="margin-top:8px" data-action="save-cover-v2">Save cover photo</button></div>
+  <div class="card" style="padding:16px;margin-top:10px"><div class="section-title"><h3>Reuse this trip</h3></div><div class="btn-row wrap-v3"><button class="btn soft" data-action="save-current-template-v4">Save as template</button><button class="btn" data-action="export-trip-v4">Export this trip</button><button class="btn" data-action="import-trip-v4">Import a trip</button></div><input id="importTripV4" type="file" accept="application/json" hidden><p class="inline-help">Trip export includes this trip's locally stored photos and attachments.</p></div>
+  <div class="card" style="padding:16px;margin-top:10px"><div class="section-title"><h3>${t.archived?"Restore from archive":"Archive trip"}</h3></div><p class="meta">${t.archived?"Put this trip back on the main Travel Shelf.":"Hide this trip from the regular Travel Shelf without deleting it."}</p><button class="btn ${t.archived?"soft":"danger"} full" data-action="toggle-archive-v4">${t.archived?"Restore trip":"Archive trip"}</button></div>`;
+}
+
+function settingsHTML() {
+  const s=state.settings,n=s.notifications||{};
+  return `<div class="settings-stack-v3">
+    <section class="card settings-card-v3"><div class="section-title"><h3>⚙️ App preferences</h3></div><form id="settingsFormV3" class="form-grid"><div class="form-row two"><div><label>YOUR NAME</label><input name="travelerName" value="${esc(s.travelerName)}"></div><div><label>HOME COUNTRY</label><input name="homeCountry" value="${esc(s.homeCountry)}"></div></div><div class="form-row two"><div><label>HOME CURRENCY</label><select name="homeCurrency">${currencyOptions(s.homeCurrency)}</select></div><div><label>DEFAULT TRIP CURRENCY</label><select name="defaultTripCurrency">${currencyOptions(s.defaultTripCurrency)}</select></div></div><div class="form-row two"><div><label>DATE FORMAT</label><select name="dateFormat">${(window.ICHIGO_DATA?.dateFormats||[]).map(x=>`<option value="${x.id}" ${s.dateFormat===x.id?"selected":""}>${esc(x.label)}</option>`).join("")}</select></div><div><label>TIME FORMAT</label><select name="timeFormat">${(window.ICHIGO_DATA?.timeFormats||[]).map(x=>`<option value="${x.id}" ${s.timeFormat===x.id?"selected":""}>${esc(x.label)}</option>`).join("")}</select></div></div><div class="form-row two"><div><label>PREFERRED MAP</label><select name="mapApp">${(window.ICHIGO_DATA?.mapApps||[]).map(x=>`<option value="${x.id}" ${s.mapApp===x.id?"selected":""}>${esc(x.label)}</option>`).join("")}</select></div><div><label>APP THEME</label><select name="theme">${(window.ICHIGO_DATA?.themePresets||[]).map(x=>`<option value="${x.id}" ${s.theme===x.id?"selected":""}>${esc(x.label)}</option>`).join("")}</select></div></div><button class="btn primary">Save preferences</button></form></section>
+    <section class="card settings-card-v3"><div class="section-title"><h3>🍓 Personal templates</h3></div><p class="meta">${state.customTripTemplates.length} custom trip template${state.customTripTemplates.length===1?"":"s"} · ${state.dayTemplates.length} saved day template${state.dayTemplates.length===1?"":"s"}</p><div class="btn-row wrap-v3"><button class="btn soft" data-action="trip-templates-v4">Browse trip templates</button><button class="btn" data-action="save-current-template-v4">Save current trip</button></div></section>
+    <section class="card settings-card-v3"><div class="section-title"><h3>🔔 Reminders</h3><span class="meta">while Ichigo is open</span></div><p class="meta">Web PWAs can show reminders while the app is running. Closed-app scheduling on iPhone still requires push/native infrastructure.</p><div class="form-row two"><div><label>ACTIVITY LEAD</label><select id="activityLeadV3">${(window.ICHIGO_DATA?.reminderLeadOptions||[]).map(x=>`<option value="${x}" ${Number(n.activityLead)===x?"selected":""}>${x} min</option>`).join("")}</select></div><div><label>BOOKING LEAD</label><select id="bookingLeadV3">${(window.ICHIGO_DATA?.reminderLeadOptions||[]).map(x=>`<option value="${x}" ${Number(n.bookingLead)===x?"selected":""}>${x} min</option>`).join("")}</select></div></div><div class="btn-row" style="margin-top:9px"><button class="btn soft" data-action="enable-notifications-v3">Enable reminders</button><button class="btn" data-action="save-reminder-settings-v3">Save reminder timing</button></div></section>
+    <section class="card settings-card-v3"><div class="section-title"><h3>💾 Backup & restore</h3></div><p class="meta">Full backup includes all trips and local media. Per-trip export lives under Trip Info.</p><div class="btn-row"><button class="btn soft" data-action="export-full-backup-v3">Export full backup</button><button class="btn" data-action="import-full-backup-v3">Restore backup</button></div><input id="importFullBackupV3" type="file" accept="application/json" hidden><div class="storage-line-v3"><span>Local files</span><strong id="dbStatsV3">Checking…</strong></div><div class="storage-line-v3"><span>Browser storage</span><strong id="storageEstimateV3">Checking…</strong></div></section>
+    <section class="card settings-card-v3"><div class="section-title"><h3>⬆️ App updates</h3></div><p class="meta">Ichigo checks GitHub Pages for a newer cached build.</p><div class="btn-row"><button class="btn soft" data-action="force-update-check-v3">Check for update</button><button class="btn" data-action="install-app">Install Ichigo</button></div></section>
+    <section class="card settings-card-v3"><div class="section-title"><h3>🧪 Testing & debug</h3></div><div class="diagnostic-grid-v3"><span>App</span><strong>${APP_VERSION_V4}</strong><span>Schema</span><strong>v${APP_SCHEMA_VERSION_V4}</strong><span>Cache</span><strong>${CACHE_VERSION_V4}</strong><span>Network</span><strong>${navigator.onLine?"Online":"Offline"}</strong></div><div class="btn-row wrap-v3" style="margin-top:10px"><button class="btn soft" data-action="run-selftest-v3">Run self-test</button><button class="btn" data-action="copy-diagnostics-v3">Copy diagnostics</button><button class="btn" data-action="clear-caches-v3">Clear app caches</button></div></section>
+    <section class="card settings-card-v3"><button class="btn danger full" data-action="reset-demo">Reset demo data</button></section>
+  </div>`;
+}
+
+/* ---------- Per-trip export / import ---------- */
+function collectTripFileKeysV4(value,keys=new Set()) {
+  if(Array.isArray(value)){value.forEach(x=>collectTripFileKeysV4(x,keys));return keys}
+  if(!value||typeof value!=="object")return keys;
+  Object.entries(value).forEach(([k,v])=>{
+    if(/Key$/.test(k)&&typeof v==="string"&&v)keys.add(v);
+    else collectTripFileKeysV4(v,keys);
+  });
+  return keys;
+}
+
+async function exportTripV4() {
+  try{
+    notify("Preparing trip export…");
+    const t=clone(trip()),keys=collectTripFileKeysV4(t),all=await IchigoDB.exportAll();
+    const files=all.filter(x=>keys.has(x.id));
+    download(`ichigo-trip-${String(t.title||"trip").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}.json`,JSON.stringify({
+      format:"ichigo-trip-export",version:1,appVersion:APP_VERSION_V4,exportedAt:new Date().toISOString(),trip:t,files
+    }));
+    notify(`Trip exported · ${files.length} local file${files.length===1?"":"s"}`);
+  }catch(err){console.error(err);notify("Trip export couldn't be created.")}
+}
+
+async function importTripV4(file) {
+  try{
+    const payload=JSON.parse(await file.text());
+    if(payload.format!=="ichigo-trip-export"||!payload.trip)throw Error("Invalid trip export");
+    const imported=ensureTripV4(payload.trip);
+    imported.id=uuid();
+    imported.title=`${imported.title} (Imported)`;
+    imported.archived=false;
+    await IchigoDB.importAll(payload.files||[],{clearFirst:false});
+    state.trips.push(imported);state.currentTripId=imported.id;state.currentView="home";save();render();notify("Trip imported ✓");
+  }catch(err){console.error(err);alert("That file is not a valid Ichigo trip export.")}
+}
+
+/* Keep full backup metadata current. */
+async function exportFullBackupV3(){
+  try{
+    notify("Preparing backup…");const files=await IchigoDB.exportAll();
+    const payload={format:"ichigo-full-backup",backupVersion:2,appVersion:APP_VERSION_V4,schemaVersion:APP_SCHEMA_VERSION_V4,exportedAt:new Date().toISOString(),state,files};
+    download(`ichigo-full-backup-${isoToday()}.json`,JSON.stringify(payload));notify(`Backup ready · ${files.length} local file${files.length===1?"":"s"}`);
+  }catch(err){console.error(err);notify("Backup couldn't be created.")}
+}
+
+async function restoreFullBackupV3(file){
+  try{
+    const payload=JSON.parse(await file.text());
+    if(payload.format!=="ichigo-full-backup"||!payload.state)throw Error("Invalid Ichigo backup");
+    if(!confirm("Restore this backup? Current local Ichigo data and stored images will be replaced."))return;
+    state=payload.state;ensureStateV4();state.trips=(state.trips||[]).map(ensureTripV4);
+    await IchigoDB.importAll(payload.files||[],{clearFirst:true});save();render();notify("Ichigo backup restored ✓");
+  }catch(err){console.error(err);alert("That file is not a valid Ichigo full backup.")}
+}
+
+async function diagnosticsV3(){
+  const fileStats=await IchigoDB.stats().catch(()=>({count:-1,bytes:0})),cacheKeys=await caches.keys().catch(()=>[]);
+  const reg=await Promise.resolve(navigator.serviceWorker?.getRegistration?.()).catch(()=>null);
+  const storage=await Promise.resolve(navigator.storage?.estimate?.()).catch(()=>null);
+  return {appVersion:APP_VERSION_V4,schemaVersion:state.schemaVersion,tripCount:state.trips.length,currentTrip:trip().title,online:navigator.onLine,serviceWorker:reg?{active:!!reg.active,waiting:!!reg.waiting}:"none",caches:cacheKeys,files:fileStats,storage,generatedAt:new Date().toISOString()};
+}
+
+/* ---------- Build 4 actions ---------- */
+document.addEventListener("click",async event=>{
+  const el=event.target.closest("[data-action]");if(!el)return;
+  const a=el.dataset.action,t=trip();
+
+  if(a==="open-health-v4"){state.currentView="trip";state.tripView="health";save();render()}
+  if(a==="health-jump-v4"){state.currentView=el.dataset.view;if(state.currentView==="plan")state.planView=el.dataset.sub;if(state.currentView==="spend")state.spendView=el.dataset.sub;save();render()}
+
+  if(a==="trip-templates-v4")openModal("Trip Templates",tripTemplatesHTMLV4())
+  if(a==="choose-trip-template-v4")openModal("Trip Details",tripTemplateFormV4(el.dataset.templateId))
+  if(a==="save-current-template-v4")saveTripTemplateModalV4()
+  if(a==="delete-trip-template-v4"){if(confirm("Delete this custom trip template?")){state.customTripTemplates=state.customTripTemplates.filter(x=>x.id!==el.dataset.templateId);save();modalRoot.querySelector("#modalBody").innerHTML=tripTemplatesHTMLV4()}}
+
+  if(a==="save-day-template-v4")dayTemplateSaveModalV4(el.dataset.date)
+  if(a==="use-day-template-v4")dayTemplateApplyModalV4(el.dataset.date)
+  if(a==="apply-day-template-v4"){
+    const tpl=state.dayTemplates.find(x=>x.id===el.dataset.templateId),date=el.dataset.date;
+    if(tpl){const start=activitiesOn(date,t).length;tpl.activities.forEach((x,i)=>t.itinerary.push({...clone(x),id:uuid(),date,order:start+i,completed:false,completedAt:"",skipped:false,skippedAt:"",arrivedAt:""}));renumberDay(date,t);state.activeItineraryDate=date;save();closeModal();render();notify("Day template added")}
+  }
+  if(a==="delete-day-template-v4"){if(confirm("Delete this day template?")){state.dayTemplates=state.dayTemplates.filter(x=>x.id!==el.dataset.templateId);save();dayTemplateApplyModalV4(el.dataset.date||activeDate())}}
+
+  if(a==="delay-activity-v4"){
+    const item=t.itinerary.find(x=>x.id===el.dataset.id),mins=Number(el.dataset.minutes||15);
+    if(!item||!item.time||item.flexible){notify("This activity doesn't have a fixed time to delay.");return}
+    item.originalTime ||= item.time;item.time=timeFromMinutes(minutesFromTime(item.time)+mins);item.delayMinutes=Number(item.delayMinutes||0)+mins;save();render();notify(`${item.title} moved ${mins} minutes later`)
+  }
+  if(a==="reset-delay-v4"){const item=t.itinerary.find(x=>x.id===el.dataset.id);if(item?.originalTime){item.time=item.originalTime;item.originalTime="";item.delayMinutes=0;save();render();notify("Original time restored")}}
+  if(a==="skip-activity-v4"){const item=t.itinerary.find(x=>x.id===el.dataset.id);if(item){item.skipped=!item.skipped;item.skippedAt=item.skipped?new Date().toISOString():"";if(item.skipped)item.completed=false;save();render();notify(item.skipped?"Activity skipped":"Activity restored")}}
+  if(a==="activity-note-v4"){const item=t.itinerary.find(x=>x.id===el.dataset.id);if(item)openModal("Quick Activity Note",`<form id="activityNoteFormV4" data-id="${item.id}" class="form-grid"><div class="form-row"><label>${esc(item.title)}</label><textarea name="note" placeholder="Anything you want to remember right now...">${esc(item.notes||"")}</textarea></div><button class="btn primary">Save note</button></form>`)}
+  if(a==="activity-expense-v4"){const item=t.itinerary.find(x=>x.id===el.dataset.id);if(item)openModal("Expense for Activity",expenseFormHTMLV2({date:item.date,merchant:item.place||item.title,category:item.type==="transport"?"Transport":item.type==="shopping"?"Shopping":item.type==="food"||item.type==="cafe"?"Food":"Activities",notes:`From itinerary: ${item.title}`}))}
+  if(a==="activity-memory-v4"){const item=t.itinerary.find(x=>x.id===el.dataset.id);if(item)openModal("Memory from Activity",memoryFormHTMLV2({date:item.date,time:item.time,title:item.title,location:item.place||item.address,lat:item.lat,lng:item.lng}))}
+
+  if(a==="delete-document-v4"){
+    const doc=t.essentials.documents.find(x=>x.id===el.dataset.id);
+    if(doc&&confirm(`Delete ${doc.name}?`)){if(doc.fileKey)await IchigoDB.remove(doc.fileKey).catch(()=>{});t.essentials.documents=t.essentials.documents.filter(x=>x.id!==doc.id);save();render();notify("Document removed")}
+  }
+
+  if(a==="toggle-archive-v4"){
+    t.archived=!t.archived;t.archivedAt=t.archived?new Date().toISOString():"";save();render();notify(t.archived?"Trip archived":"Trip restored")
+  }
+
+  if(a==="export-trip-v4")await exportTripV4()
+  if(a==="import-trip-v4")document.querySelector("#importTripV4")?.click()
+});
+
+document.addEventListener("change",async event=>{
+  const x=event.target;
+  if(x.id==="importTripV4"&&x.files?.[0])await importTripV4(x.files[0]);
+});
+
+document.addEventListener("submit",async event=>{
+  const f=event.target;if(!f.id?.endsWith("V4"))return;
+  event.preventDefault();
+  const d=Object.fromEntries(new FormData(f).entries()),t=trip();
+
+  if(f.id==="tripTemplateCreateFormV4"){
+    createTripFromTemplateV4(f.dataset.templateId,d);closeModal();save();render();notify("Trip created 🍓")
+  }
+
+  if(f.id==="saveTripTemplateFormV4"){
+    const firstDay=allDates(t).find(date=>activitiesOn(date,t).length);
+    const template={
+      id:uuid(),label:d.label.trim(),description:d.description.trim(),emoji:t.countryEmoji||"🍓",source:"custom",
+      totalBudget:t.totalBudget,dailyBudget:t.dailyBudget,categoryBudgets:clone(t.categoryBudgets||{}),
+      packing:t.packing.map(x=>({category:x.category,name:x.name,quantity:x.quantity||1})),
+      preTrip:t.preTrip.map(x=>({category:x.category,name:x.name,detail:x.detail,priority:x.priority})),
+      starterDay:firstDay?activitiesOn(firstDay,t).map(x=>({time:x.time,title:x.title,place:"",type:x.type,notes:x.notes,duration:x.duration,travelTime:x.travelTime,flexible:x.flexible})):[]
+    };
+    state.customTripTemplates.push(template);save();closeModal();notify("Reusable trip template saved")
+  }
+
+  if(f.id==="saveDayTemplateFormV4"){
+    const date=f.dataset.date,activities=activitiesOn(date,t).map(x=>({
+      time:x.time,title:x.title,place:x.place,type:x.type,notes:x.notes,duration:x.duration,travelTime:x.travelTime,flexible:x.flexible,address:x.address||"",link:x.link||""
+    }));
+    state.dayTemplates.push({id:uuid(),name:d.name.trim(),createdAt:Date.now(),activities});save();closeModal();notify("Day template saved")
+  }
+
+  if(f.id==="activityNoteFormV4"){
+    const item=t.itinerary.find(x=>x.id===f.dataset.id);if(item){item.notes=d.note.trim();save();closeModal();render();notify("Activity note saved")}
+  }
+
+  if(f.id==="documentFormV4"){
+    const editId=f.dataset.editId||"",old=editId?t.essentials.documents.find(x=>x.id===editId):null,item=old||{id:uuid(),fileKey:"",fileName:"",createdAt:Date.now()};
+    const input=f.querySelector('[name="attachment"]');
+    if(input?.files?.[0]){
+      try{
+        let blob=input.files[0];
+        if(blob.type?.startsWith("image/"))blob=await IchigoDB.compressImage(blob,1600,.8);
+        if(item.fileKey)await IchigoDB.remove(item.fileKey).catch(()=>{});
+        item.fileKey=await IchigoDB.put(blob,{name:input.files[0].name,kind:"document"});
+        item.fileName=input.files[0].name;
+      }catch(err){console.error(err);notify("The attachment could not be stored, but the document details can still be saved.")}
+    }
+    Object.assign(item,{name:d.name.trim(),category:d.category,expiryDate:d.expiryDate||"",important:!!d.important,reference:d.reference.trim()});
+    if(!old)t.essentials.documents.push(item);save();closeModal();render();notify("Document Vault updated")
+  }
+});
+
+/* ---------- Build 4 startup ---------- */
+migrateAllTripsV4(true);
 applyLaunchShortcut();
 applyAppearanceV3();
 save();
