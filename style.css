@@ -255,3 +255,43 @@ html[data-theme="lavender"]{--bg:#fbf9ff;--soft:#f2ecff;--pink:#a486dd;--pink2:#
 .fresh-features-v71 span{display:block;font-size:24px}.fresh-features-v71 strong{display:block;margin:5px 0 3px;font-size:11px}.fresh-features-v71 small{display:block;color:var(--muted);font-size:8px;line-height:1.4}
 .fresh-privacy-v71{display:inline-block;border-radius:999px;background:var(--soft);padding:7px 11px;color:var(--muted);font-size:8px}
 @media(max-width:430px){.fresh-features-v71{grid-template-columns:1fr}.fresh-features-v71>div{display:grid;grid-template-columns:36px 1fr;column-gap:8px;text-align:left}.fresh-features-v71 span{grid-row:1/3}.fresh-features-v71 strong,.fresh-features-v71 small{margin:0}}
+
+
+/* Ichigo 7.2 — clean true-first-run screen */
+.brand-berry{width:38px;height:38px;display:grid;place-items:center;flex:0 0 38px}
+.brand-berry img{width:36px;height:36px;display:block;border-radius:10px;object-fit:cover}
+
+body.fresh-mode-v72 .app-shell{padding-bottom:0}
+body.fresh-mode-v72 .bottom-nav,
+body.fresh-mode-v72 .fab,
+body.fresh-mode-v72 .top-actions,
+body.fresh-mode-v72 .app-status-v7{display:none!important}
+
+body.fresh-mode-v72 .topbar{position:relative}
+body.fresh-mode-v72 .main-view{padding-bottom:max(28px,env(safe-area-inset-bottom))}
+body.fresh-mode-v72 .fresh-start-v71{margin:28px auto 24px;padding-top:18px}
+
+body.fresh-mode-v72 .fresh-berry-v71{
+  width:106px;
+  height:106px;
+  margin:0 auto 16px;
+  padding:0;
+  border:0;
+  border-radius:27px;
+  background:transparent;
+  box-shadow:0 14px 34px rgba(139,73,92,.12);
+  overflow:hidden;
+}
+body.fresh-mode-v72 .fresh-berry-v71 img{
+  width:100%;
+  height:100%;
+  display:block;
+  object-fit:cover;
+}
+
+body.fresh-mode-v72 .fresh-copy-v71{max-width:440px}
+body.fresh-mode-v72 .fresh-features-v71{margin-bottom:8px}
+
+@media(max-width:430px){
+  body.fresh-mode-v72 .fresh-start-v71{margin-top:18px;padding-top:10px}
+}

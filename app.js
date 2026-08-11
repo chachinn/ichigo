@@ -3885,8 +3885,8 @@ document.addEventListener("click",event=>{
    - Removes the legacy Japan 2026 demo from older prototype installs
    ===================================================================== */
 
-const APP_VERSION_V71 = "7.1.0-personal-fresh";
-const CACHE_VERSION_V71 = "ichigo-build7-1-fresh-v1";
+const APP_VERSION_V71 = "7.2.0-personal-cleanstart";
+const CACHE_VERSION_V71 = "ichigo-build7-2-cleanstart-v1";
 
 function isLegacyDemoTripV71(t) {
   if (!t) return false;
@@ -3927,18 +3927,16 @@ function cleanLegacyDemoV71() {
 
 function renderFreshStartV71() {
   document.documentElement.dataset.theme = state.settings?.theme || "strawberry";
-  document.querySelectorAll(".nav-item").forEach(x => {
-    const active = x.dataset.nav === "home";
-    x.classList.toggle("active", active);
-    if (active) x.setAttribute("aria-current","page"); else x.removeAttribute("aria-current");
-  });
+  document.body.classList.add("fresh-mode-v72");
 
   main.innerHTML = `
     <section class="fresh-start-v71">
-      <div class="fresh-berry-v71">🍓</div>
+      <div class="fresh-berry-v71">
+        <img src="./icons/icon-192-v41.png" alt="Ichigo">
+      </div>
       <p class="eyebrow">WELCOME TO ICHIGO</p>
       <h1>Plan sweet little adventures.</h1>
-      <p class="fresh-copy-v71">Your Ichigo is empty and ready for your first trip. Nothing is pre-filled, and your travel data stays on this device.</p>
+      <p class="fresh-copy-v71">Create your first trip and start building your itinerary, places, budget, bookings and travel memories.</p>
 
       <div class="fresh-actions-v71">
         <button class="btn primary" data-action="new-trip">＋ Create your first trip</button>
@@ -3949,13 +3947,8 @@ function renderFreshStartV71() {
         <div><span>🍓</span><strong>Live it</strong><small>Today Mode, spending and quick notes</small></div>
         <div><span>📖</span><strong>Remember</strong><small>Journal, timeline and scrapbook</small></div>
       </div>
-
-      <div class="fresh-privacy-v71">No demo trip · No default travelers · No account required</div>
     </section>`;
   updateOnline();
-  ensureStatusUIV7();
-  const offline=document.querySelector("#offlineStatusV7");
-  if(offline)offline.textContent=navigator.onLine?"Online":"Offline";
 }
 
 const renderBeforeFreshV71 = render;
@@ -3965,6 +3958,7 @@ render = function renderWithFreshStartV71() {
     renderFreshStartV71();
     return;
   }
+  document.body.classList.remove("fresh-mode-v72");
   renderBeforeFreshV71();
 };
 
@@ -4044,5 +4038,5 @@ if (state.trips.length) {
 save();
 render();
 setupServiceWorkerUpdatesV3();
-if (legacyDemoRemovedV71) setTimeout(()=>notify("Old prototype sample data was removed ✓"),250);
+if (legacyDemoRemovedV71) setTimeout(()=>notify("Ichigo is ready for your first trip ✓"),250);
 
