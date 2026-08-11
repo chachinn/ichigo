@@ -1,7 +1,7 @@
 {
   "name": "Ichigo — Trip Planner",
   "short_name": "Ichigo",
-  "description": "Plan sweet little adventures. Offline-first itinerary, places, budgets, bookings, packing, shared expenses and memories.",
+  "description": "Plan, live and remember sweet little adventures with offline-first itinerary, Today Mode, Trip Inbox, budgets, bookings, packing, shared expenses and memories.",
   "id": "./",
   "start_url": "./index.html",
   "scope": "./",
@@ -17,25 +17,25 @@
   "lang": "en",
   "icons": [
     {
-      "src": "./icons/apple-touch-icon.png?v=20260811-iconfix1",
+      "src": "./icons/apple-touch-icon.png?v=20260811-build3",
       "sizes": "180x180",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./icons/icon-192.png?v=20260811-iconfix1",
+      "src": "./icons/icon-192.png?v=20260811-build3",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./icons/icon-512.png?v=20260811-iconfix1",
+      "src": "./icons/icon-512.png?v=20260811-build3",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./icons/icon-maskable-512.png?v=20260811-iconfix1",
+      "src": "./icons/icon-maskable-512.png?v=20260811-build3",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
@@ -45,13 +45,25 @@
     {
       "name": "Today",
       "short_name": "Today",
-      "description": "Open Ichigo for today's trip",
+      "description": "Open today's trip",
       "url": "./index.html#today"
+    },
+    {
+      "name": "Trip Inbox",
+      "short_name": "Inbox",
+      "description": "Open the Trip Inbox",
+      "url": "./index.html#inbox"
+    },
+    {
+      "name": "Search",
+      "short_name": "Search",
+      "description": "Search the current trip",
+      "url": "./index.html#search"
     },
     {
       "name": "Add Expense",
       "short_name": "Expense",
-      "description": "Open Ichigo and add an expense",
+      "description": "Add an expense",
       "url": "./index.html#expense"
     }
   ]

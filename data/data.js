@@ -1,7 +1,7 @@
 /* ==========================================================
-   ICHIGO DATA PACK — BUILD 2
+   ICHIGO DATA PACK — BUILD 3
    LOCATION: /data/data.js
-   Static starter data used by the local-first app.
+   Static starter data, themes and preferences used by the local-first app.
    Keep this file inside /data/ and load it before app.js.
    ========================================================== */
 
@@ -85,3 +85,40 @@ window.ICHIGO_DATA = {
     { jp: "アレルギーがあります", romaji: "Arerugii ga arimasu", en: "I have an allergy" }
   ]
 };
+
+
+/* Build 3 configuration. Kept outside the original object literal so older
+   installs can load this file without needing a destructive data reset. */
+Object.assign(window.ICHIGO_DATA, {
+  appVersion: "3.0.0",
+  schemaVersion: 3,
+
+  inboxTypes: ["Place idea", "Activity idea", "Booking", "Food", "Link", "Note", "Screenshot"],
+
+  themePresets: [
+    { id: "strawberry", label: "Strawberry Milk", accent: "#ff6f91" },
+    { id: "lavender", label: "Lavender Sky", accent: "#9b7ad8" },
+    { id: "peach", label: "Peach Sorbet", accent: "#f28e78" },
+    { id: "matcha", label: "Matcha Cream", accent: "#79a878" },
+    { id: "blueberry", label: "Blueberry Milk", accent: "#738ec8" }
+  ],
+
+  mapApps: [
+    { id: "apple", label: "Apple Maps" },
+    { id: "google", label: "Google Maps" }
+  ],
+
+  dateFormats: [
+    { id: "friendly", label: "Oct 20, 2026" },
+    { id: "dmy", label: "20/10/2026" },
+    { id: "mdy", label: "10/20/2026" },
+    { id: "iso", label: "2026-10-20" }
+  ],
+
+  timeFormats: [
+    { id: "12h", label: "9:42 AM" },
+    { id: "24h", label: "09:42" }
+  ],
+
+  reminderLeadOptions: [5, 10, 15, 30, 60, 120]
+});

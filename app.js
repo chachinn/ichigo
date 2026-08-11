@@ -1382,8 +1382,557 @@ document.addEventListener("pointerup",e=>{
 });
 
 
-/* Ichigo Build 2 startup */
-migrateAllTripsV2();
+
+
+/* =====================================================================
+   ICHIGO BUILD 3 — APP POLISH + RESILIENCE
+   1. Full CRUD polish
+   2. Itinerary power tools
+   3. Trip Inbox
+   4. Today Mode 3.0
+   5. Map filters + route line
+   6. Foreground local reminders
+   7. In-app update system
+   8. Schema migrations
+   9. Full backup including IndexedDB files
+  10. App settings
+  11. Trip customization
+  12. Universal search
+  13. First-run onboarding
+  14. Accessibility / mobile polish
+  15. Testing + debug panel
+   ===================================================================== */
+
+const APP_VERSION_V3 = "3.0.0";
+const APP_SCHEMA_VERSION_V3 = 3;
+const CACHE_VERSION_V3 = "ichigo-build3-v1";
+const REMINDER_LOG_V3 = "ichigo-reminder-log-v3";
+
+const DEFAULT_SETTINGS_V3 = {
+  travelerName: "Me",
+  homeCountry: "Philippines",
+  homeCurrency: "PHP",
+  defaultTripCurrency: "JPY",
+  dateFormat: "friendly",
+  timeFormat: "12h",
+  mapApp: "apple",
+  theme: "strawberry",
+  notifications: {
+    enabled: false,
+    activityLead: 15,
+    bookingLead: 60,
+    taskDue: true
+  }
+};
+
+let reminderTimerV3 = null;
+let onboardingShownV3 = false;
+let pendingSWRegistrationV3 = null;
+let lastFocusedBeforeModalV3 = null;
+let reloadForUpdateV3 = false;
+
+function deepMergeV3(base, extra) {
+  const out = clone(base);
+  Object.entries(extra || {}).forEach(([key, value]) => {
+    if (value && typeof value === "object" && !Array.isArray(value) && out[key] && typeof out[key] === "object" && !Array.isArray(out[key])) out[key] = deepMergeV3(out[key], value);
+    else out[key] = value;
+  });
+  return out;
+}
+
+function save() {
+  state.schemaVersion = APP_SCHEMA_VERSION_V3;
+  state.appVersion = APP_VERSION_V3;
+  state.updatedAt = Date.now();
+  localStorage.setItem(STORE, JSON.stringify(state));
+}
+
+function ensureStateV3() {
+  state.settings = deepMergeV3(DEFAULT_SETTINGS_V3, state.settings || {});
+  state.schemaVersion = Number(state.schemaVersion || 1);
+  state.appVersion ||= APP_VERSION_V3;
+  state.onboarding ||= { completed: false, step: 0 };
+  state.migrations ||= [];
+  state.mapFilters ||= { day: "active", category: "All", source: "all" };
+  state.collapsedDays ||= {};
+  state.activeItineraryDate ||= "";
+  state.launchActionV3 ||= "";
+  return state;
+}
+
+function ensureTripV3(t) {
+  t = ensureTripV2(t);
+  if (!t) return t;
+  t.inbox ||= [];
+  t.theme ||= "inherit";
+  t.accentColor ||= "";
+  t.dayNotes ||= {};
+  t.itinerary.forEach(item => {
+    item.completed ??= false;
+    item.completedAt ||= "";
+    item.arrivedAt ||= "";
+    item.reminderLead = Number(item.reminderLead ?? state.settings?.notifications?.activityLead ?? 15);
+  });
+  t.bookings.forEach(item => item.reminderLead = Number(item.reminderLead ?? state.settings?.notifications?.bookingLead ?? 60));
+  t.inbox.forEach(item => {
+    item.id ||= uuid();
+    item.type ||= "Note";
+    item.title ||= "Untitled idea";
+    item.note ||= "";
+    item.url ||= "";
+    item.fileKey ||= "";
+    item.status ||= "inbox";
+    item.createdAt ||= Date.now();
+  });
+  return t;
+}
+
+function migrateAllTripsV3(persist = false) {
+  ensureStateV3();
+  const before = Number(state.schemaVersion || 1);
+  state.trips = (state.trips || []).map(ensureTripV3);
+  if (before < 3 && !state.migrations.some(x => x.version === 3)) {
+    state.migrations.push({ version: 3, at: Date.now(), note: "Build 3 settings, inbox, reminders and customization" });
+  }
+  state.schemaVersion = APP_SCHEMA_VERSION_V3;
+  state.appVersion = APP_VERSION_V3;
+  if (persist) save();
+}
+
+function trip() {
+  ensureStateV3();
+  return ensureTripV3(state.trips.find(x => x.id === state.currentTripId) || state.trips[0]);
+}
+
+function nice(s, options = null) {
+  const d = parseDate(s);
+  if (!d) return "";
+  if (options) return d.toLocaleDateString(undefined, options);
+  const format = state?.settings?.dateFormat || "friendly";
+  if (format === "dmy") return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
+  if (format === "mdy") return `${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}/${d.getFullYear()}`;
+  if (format === "iso") return s;
+  return d.toLocaleDateString(undefined, { month:"short", day:"numeric", year:"numeric" });
+}
+
+function formatTimeV3(time) {
+  if (!time) return "Anytime";
+  if ((state.settings?.timeFormat || "12h") === "24h") return time;
+  const [h, m] = time.split(":").map(Number);
+  const suffix = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 || 12;
+  return `${hour}:${String(m).padStart(2,"0")} ${suffix}`;
+}
+
+function shadeHexV3(hex, amount = -20) {
+  const clean = String(hex || "").replace("#", "");
+  if (!/^[0-9a-f]{6}$/i.test(clean)) return "#ff4f78";
+  const n = parseInt(clean,16);
+  const clamp = x => Math.max(0, Math.min(255, x));
+  const r=clamp((n>>16)+amount), g=clamp(((n>>8)&255)+amount), b=clamp((n&255)+amount);
+  return `#${[r,g,b].map(x=>x.toString(16).padStart(2,"0")).join("")}`;
+}
+
+function applyAppearanceV3() {
+  ensureStateV3();
+  const t = trip();
+  const theme = t.theme && t.theme !== "inherit" ? t.theme : state.settings.theme;
+  document.documentElement.dataset.theme = theme || "strawberry";
+  if (t.accentColor) {
+    document.documentElement.style.setProperty("--pink", t.accentColor);
+    document.documentElement.style.setProperty("--pink2", shadeHexV3(t.accentColor, -22));
+  } else {
+    document.documentElement.style.removeProperty("--pink");
+    document.documentElement.style.removeProperty("--pink2");
+  }
+}
+
+function render() {
+  ensureStateV3();
+  state.trips = (state.trips || []).map(ensureTripV3);
+  applyAppearanceV3();
+  document.querySelectorAll(".nav-item").forEach(x => {
+    const active = x.dataset.nav === state.currentView;
+    x.classList.toggle("active", active);
+    if (active) x.setAttribute("aria-current", "page"); else x.removeAttribute("aria-current");
+  });
+  ({home:renderHome,plan:renderPlan,today:renderToday,spend:renderSpend,together:renderTogether,trip:renderTrip}[state.currentView]||renderHome)();
+  updateOnline();
+  afterRenderV2();
+  afterRenderV3();
+}
+
+function afterRenderV3() {
+  hydrateFilesV2();
+  updateStorageDiagnosticsV3();
+  maybeShowOnboardingV3();
+  if (state.launchActionV3 === "search") { state.launchActionV3=""; save(); setTimeout(()=>openSearchV3(),60); }
+  startReminderEngineV3();
+}
+
+/* ---------- Modal accessibility ---------- */
+function openModal(title, html) {
+  lastFocusedBeforeModalV3 = document.activeElement;
+  const tpl = document.querySelector("#modalTemplate");
+  const node = tpl.content.cloneNode(true);
+  modalRoot.replaceChildren(node);
+  modalRoot.querySelector("#modalTitle").textContent = title;
+  modalRoot.querySelector("#modalBody").innerHTML = html;
+  const card = modalRoot.querySelector(".modal-card");
+  card?.setAttribute("tabindex", "-1");
+  requestAnimationFrame(() => (card?.querySelector("input,select,textarea,button,[href]") || card)?.focus());
+}
+
+function closeModal() {
+  modalRoot.innerHTML = "";
+  if (lastFocusedBeforeModalV3?.focus) lastFocusedBeforeModalV3.focus();
+}
+
+document.addEventListener("keydown", event => {
+  if (!modalRoot.firstElementChild) return;
+  if (event.key === "Escape") { event.preventDefault(); closeModal(); return; }
+  if (event.key !== "Tab") return;
+  const focusable=[...modalRoot.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')];
+  if (!focusable.length) return;
+  const first=focusable[0], last=focusable.at(-1);
+  if (event.shiftKey && document.activeElement===first){event.preventDefault();last.focus()}
+  else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first.focus()}
+});
+
+if (window.visualViewport) {
+  const keyboardCheck=()=>document.body.classList.toggle("keyboard-open", window.visualViewport.height < window.innerHeight * .78);
+  window.visualViewport.addEventListener("resize", keyboardCheck);
+}
+
+/* ---------- Universal search ---------- */
+function searchIndexV3(query) {
+  const q=String(query||"").trim().toLowerCase();
+  if (!q) return [];
+  const t=trip(), rows=[];
+  const add=(kind,id,title,detail,haystack)=>{if(String(haystack).toLowerCase().includes(q))rows.push({kind,id,title,detail})};
+  t.itinerary.forEach(x=>add("activity",x.id,x.title,`${nice(x.date)} · ${x.place||""}`,`${x.title} ${x.place} ${x.address} ${x.notes} ${x.date}`));
+  t.places.forEach(x=>add("place",x.id,x.name,`${x.area||""} · ${x.category}`,`${x.name} ${x.area} ${x.category} ${x.address} ${(x.tags||[]).join(" ")} ${x.notes}`));
+  t.bookings.forEach(x=>add("booking",x.id,x.title,`${x.type} · ${nice(x.date)}`,`${x.title} ${x.type} ${x.confirmation} ${x.address} ${x.notes}`));
+  t.expenses.forEach(x=>add("expense",x.id,x.merchant||x.title,`${money(x.amount)} · ${x.category}`,`${x.merchant} ${x.title} ${x.category} ${x.notes} ${x.payment}`));
+  t.packing.forEach(x=>add("packing",x.id,x.name,x.category,`${x.name} ${x.category}`));
+  t.preTrip.forEach(x=>add("task",x.id,x.name,`${x.priority} · ${x.dueDate?nice(x.dueDate):"No due date"}`,`${x.name} ${x.category} ${x.priority} ${x.detail}`));
+  t.memories.forEach(x=>add("memory",x.id,x.title||"Memory",`${nice(x.date)} · ${x.location||""}`,`${x.title} ${x.note} ${x.location} ${x.date}`));
+  t.inbox.forEach(x=>add("inbox",x.id,x.title,x.type,`${x.title} ${x.type} ${x.note} ${x.url}`));
+  return rows.slice(0,60);
+}
+
+function searchResultsHTMLV3(query) {
+  const rows=searchIndexV3(query);
+  if (!String(query||"").trim()) return `<div class="search-empty-v3">Search itinerary, places, bookings, expenses, packing, tasks, memories and your Trip Inbox.</div>`;
+  if (!rows.length) return empty("🔎","Nothing found",`No Ichigo items matched “${esc(query)}”.`);
+  const icons={activity:"🗓️",place:"📍",booking:"🎟️",expense:"🧾",packing:"🧳",task:"✅",memory:"📸",inbox:"📥"};
+  return `<div class="search-results-v3">${rows.map(r=>`<button class="search-result-v3" data-action="search-result-v3" data-kind="${r.kind}" data-id="${r.id}"><span>${icons[r.kind]||"🍓"}</span><span><strong>${esc(r.title)}</strong><small>${esc(r.detail||"")}</small></span><span>›</span></button>`).join("")}</div>`;
+}
+
+function openSearchV3(query="") {
+  openModal("Search Ichigo",`<div class="searchbox global-search-v3"><input id="globalSearchV3" value="${esc(query)}" placeholder="Search everything..." autocomplete="off" aria-label="Search all trip data"></div><div id="globalSearchResultsV3" style="margin-top:10px">${searchResultsHTMLV3(query)}</div>`);
+}
+
+function goToSearchResultV3(kind) {
+  const map={activity:["plan","itinerary"],place:["plan","places"],booking:["plan","bookings"],packing:["plan","packing"],task:["plan","before"],inbox:["plan","inbox"],expense:["spend","expenses"],memory:["trip","memories"]};
+  const [view,sub]=map[kind]||["home",""];
+  state.currentView=view;
+  if(view==="plan")state.planView=sub;
+  if(view==="spend")state.spendView=sub;
+  if(view==="trip")state.tripView=sub;
+  save();closeModal();render();
+}
+
+/* ---------- Trip Inbox ---------- */
+function inboxFormHTMLV3(item={}) {
+  return `<form id="inboxFormV3" data-edit-id="${item.id||""}" class="form-grid">
+    <div class="form-row"><label>TYPE</label><select name="type">${(window.ICHIGO_DATA?.inboxTypes||[]).map(x=>`<option ${item.type===x?"selected":""}>${esc(x)}</option>`).join("")}</select></div>
+    <div class="form-row"><label>TITLE</label><input name="title" required value="${esc(item.title||"")}" placeholder="Random café I saw on TikTok"></div>
+    <div class="form-row"><label>LINK</label><input name="url" type="url" value="${esc(item.url||"")}" placeholder="https://..."></div>
+    <div class="form-row"><label>NOTE</label><textarea name="note" placeholder="Dump it here now; organize it later.">${esc(item.note||"")}</textarea></div>
+    <div class="form-row"><label>SCREENSHOT / PHOTO</label><input name="attachment" type="file" accept="image/*"></div>
+    <button class="btn primary" type="submit">${item.id?"Save changes":"Add to Trip Inbox"}</button>
+  </form>`;
+}
+
+function inboxHTMLV3() {
+  const arr=[...trip().inbox].sort((a,b)=>Number(a.status==="archived")-Number(b.status==="archived")||b.createdAt-a.createdAt);
+  return `<div class="section-title"><h3>📥 Trip Inbox</h3><button data-action="add-inbox-v3">＋ Capture</button></div>
+    <div class="notice-card"><span class="notice-icon">💡</span><span><strong>Dump first, organize later.</strong><p>Save random links, screenshots, restaurants and ideas without deciding where they belong yet.</p></span></div>
+    <div class="list" style="margin-top:10px">${arr.length?arr.map(x=>`<article class="inbox-card-v3 ${x.status==="archived"?"archived":""}">
+      ${x.fileKey?`<button class="inbox-thumb-v3" data-action="open-file-v2" data-file-key="${x.fileKey}" data-file-kind="image"><span>🖼️</span></button>`:`<div class="inbox-thumb-v3">📥</div>`}
+      <div class="row-main"><div class="badge gray">${esc(x.type)}</div><h4>${esc(x.title)}</h4><p>${esc(x.note||"")}</p>${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener" class="inline-link-v3">Open saved link ↗</a>`:""}
+        <div class="activity-actions"><button class="tiny-btn" data-action="edit-inbox-v3" data-id="${x.id}">Edit</button><button class="tiny-btn" data-action="convert-inbox-place-v3" data-id="${x.id}">→ Place</button><button class="tiny-btn" data-action="convert-inbox-activity-v3" data-id="${x.id}">→ Activity</button><button class="tiny-btn" data-action="archive-inbox-v3" data-id="${x.id}">${x.status==="archived"?"Restore":"Archive"}</button><button class="tiny-btn danger" data-action="delete-inbox-v3" data-id="${x.id}">Delete</button></div>
+      </div></article>`).join(""):empty("📥","Your Trip Inbox is empty","Capture anything you want to sort out later.")}</div>`;
+}
+
+/* ---------- Itinerary power tools ---------- */
+function renderPlan() {
+  const menu=[["itinerary","🗓️","Itinerary"],["inbox","📥","Inbox"],["places","📍","Places"],["map","🗺️","Map"],["bookings","🎟️","Bookings"],["packing","🧳","Packing"],["before","✅","Before You Go"],["essentials","🆘","Essentials"]];
+  main.innerHTML=`<div class="page-head"><div><p class="eyebrow">PLAN</p><h1>Plan your trip</h1><p>${esc(trip().title)}</p></div><button class="btn soft" data-action="open-quick-add">＋ Add</button></div><div class="chips">${menu.map(([k,e,l])=>`<button class="chip ${state.planView===k?"active":""}" data-action="set-plan-view" data-feature="${k}">${e} ${l}</button>`).join("")}</div><section class="section">${planHTML(state.planView)}</section>`;
+}
+
+function planHTML(v) {
+  return v==="inbox"?inboxHTMLV3():v==="places"?placesHTML():v==="map"?mapHTMLV2():v==="bookings"?bookingsHTML():v==="packing"?packingHTML():v==="before"?beforeHTML():v==="essentials"?essentialsHTMLV2():itineraryHTML(state.activeItineraryDate||activeDate());
+}
+
+function itineraryHTML(date) {
+  const t=trip();
+  if(!allDates(t).includes(date))date=activeDate(t);
+  state.activeItineraryDate=date;
+  const items=activitiesOn(date,t),totalDuration=items.reduce((s,x)=>s+Number(x.duration||0),0),travel=items.reduce((s,x)=>s+Number(x.travelTime||0),0),collapsed=!!state.collapsedDays[`${t.id}:${date}`];
+  return `<div class="section-title"><h3>🗓️ Itinerary</h3><div class="section-actions-v3"><button data-action="duplicate-day-v3" data-date="${date}">Duplicate day</button><button data-action="quick-add-type" data-type="activity">＋ Activity</button></div></div>
+  <div class="chips">${allDates(t).map(d=>`<button class="chip ${d===date?"active":""}" data-action="show-itinerary-date-v3" data-date="${d}">Day ${dayNo(d,t)} · ${nice(d,{month:"short",day:"numeric"})}</button>`).join("")}</div>
+  <div id="itineraryDay"><div class="day-summary day-summary-v3" data-action="toggle-day-collapse-v3" data-date="${date}" role="button" tabindex="0" aria-expanded="${!collapsed}"><div><strong>${items.length}</strong><small>activities</small></div><div><strong>${formatDuration(totalDuration)||"—"}</strong><small>planned</small></div><div><strong>${formatDuration(travel)||"—"}</strong><small>travel time</small></div><span>${collapsed?"Show":"Hide"} day</span></div>
+  ${collapsed?`<div class="collapsed-day-v3">Day collapsed · ${items.length} activities</div>`:items.length?`<div data-itinerary-date="${date}">${items.map(i=>`${i.travelTime?`<div class="travel-block-v3">🚃 ${formatDuration(i.travelTime)} travel before next stop</div>`:""}${activityCardV2(i)}`).join("")}</div>`:empty("🗓️","Nothing planned yet","Add an activity to this day.","activity")}</div>`;
+}
+
+function activityCardV2(i) {
+  return `<article class="itinerary-card ${i.completed?"activity-complete-v3":""}" data-activity-id="${i.id}" data-date="${i.date}">
+    <button class="drag-handle" data-action="drag-activity-v2" data-id="${i.id}" aria-label="Drag ${esc(i.title)} to reorder">⋮⋮</button>
+    <div class="activity-time">${i.flexible?"Anytime":esc(formatTimeV3(i.time||""))}</div>
+    <div class="activity-main"><h4>${i.completed?"✓ ":""}${ICON[i.type]||"📍"} ${esc(i.title)}</h4><p>${esc(i.place||i.address||"")}${i.notes?` · ${esc(i.notes)}`:""}</p><div class="activity-meta">${i.duration?`<span class="badge gray">⏱ ${formatDuration(i.duration)}</span>`:""}${i.flexible?`<span class="badge gold">Flexible</span>`:""}${i.completed?`<span class="badge green">Done</span>`:""}</div>
+      <div class="activity-actions"><button class="tiny-btn" data-action="move-activity-step-v3" data-id="${i.id}" data-step="-1" aria-label="Move activity earlier">↑</button><button class="tiny-btn" data-action="move-activity-step-v3" data-id="${i.id}" data-step="1" aria-label="Move activity later">↓</button><button class="tiny-btn" data-action="edit-activity-v2" data-id="${i.id}">Edit</button><button class="tiny-btn" data-action="duplicate-activity-v2" data-id="${i.id}">Duplicate</button><button class="tiny-btn" data-action="move-activity-v2" data-id="${i.id}">Move day</button>${(i.address||i.lat||i.place)?`<a class="tiny-btn" href="${esc(preferredMapUrlV3(i))}" target="_blank" rel="noopener">Map</a>`:""}<button class="tiny-btn danger" data-action="delete-v2" data-collection="itinerary" data-id="${i.id}">Delete</button></div>
+    </div></article>`;
+}
+
+function duplicateDayModalV3(date) {
+  openModal("Duplicate Day",`<form id="duplicateDayFormV3" data-source-date="${date}" class="form-grid"><div class="form-row"><label>COPY DAY ${dayNo(date)} TO</label><select name="targetDate">${allDates().filter(x=>x!==date).map(d=>`<option value="${d}">Day ${dayNo(d)} · ${nice(d)}</option>`).join("")}</select></div><p class="meta">Copies every activity with new IDs. Existing activities on the target day are kept.</p><button class="btn primary">Duplicate day</button></form>`);
+}
+
+/* ---------- Map 3.0 ---------- */
+function preferredMapUrlV3(item, provider=state.settings?.mapApp||"apple") {
+  const q=[item.name||item.title,item.address,item.area,trip().destination].filter(Boolean).join(" ");
+  if(provider==="apple"){
+    if(item.lat&&item.lng)return `https://maps.apple.com/?ll=${encodeURIComponent(`${item.lat},${item.lng}`)}&q=${encodeURIComponent(item.name||item.title||"Saved place")}`;
+    return `https://maps.apple.com/?q=${encodeURIComponent(q)}`;
+  }
+  return mapsSearchUrl(item);
+}
+
+function mapHTMLV2() {
+  const t=trip(), f=state.mapFilters;
+  const cats=["All",...new Set(t.places.map(x=>x.category))];
+  return `<div class="section-title"><h3>🗺️ Map View</h3><button data-action="locate-me-v2">◎ Locate me</button></div>
+    <div class="map-filter-grid-v3"><label>SHOW<select id="mapSourceV3"><option value="all" ${f.source==="all"?"selected":""}>Places + itinerary</option><option value="places" ${f.source==="places"?"selected":""}>Saved places</option><option value="itinerary" ${f.source==="itinerary"?"selected":""}>Itinerary only</option></select></label><label>DAY<select id="mapDayV3"><option value="active" ${f.day==="active"?"selected":""}>Active / preview day</option><option value="all" ${f.day==="all"?"selected":""}>All days</option>${allDates(t).map(d=>`<option value="${d}" ${f.day===d?"selected":""}>Day ${dayNo(d,t)} · ${nice(d,{month:"short",day:"numeric"})}</option>`).join("")}</select></label><label>CATEGORY<select id="mapCategoryV3">${cats.map(c=>`<option ${f.category===c?"selected":""}>${esc(c)}</option>`).join("")}</select></label></div>
+    <div class="map-shell"><div id="ichigoMap"></div>${!navigator.onLine?`<div class="map-overlay-note">Saved place details work offline, but map tiles need a connection unless your browser still has them cached.</div>`:""}</div><p class="inline-help">When a specific itinerary day is selected, Ichigo draws a simple line between mapped stops. It is a visual route, not turn-by-turn transit routing.</p>`;
+}
+
+function initIchigoMapV2() {
+  const container=document.querySelector("#ichigoMap"); if(!container)return;
+  if(typeof L==="undefined"){container.innerHTML=empty("🗺️","Map library unavailable","Reconnect to load the interactive map. Saved place details still work.");return}
+  try{if(ichigoMapInstance){ichigoMapInstance.remove();ichigoMapInstance=null}}catch{}
+  const t=trip(),f=state.mapFilters,chosenDay=f.day==="active"?activeDate(t):f.day;
+  let places=t.places.filter(p=>p.lat&&p.lng && (f.category==="All"||p.category===f.category));
+  let activities=t.itinerary.filter(a=>a.lat&&a.lng && (chosenDay==="all"||a.date===chosenDay));
+  if(f.source==="places")activities=[]; if(f.source==="itinerary")places=[];
+  const first=places[0]||activities[0],fallback=first?[first.lat,first.lng]:[35.6762,139.6503];
+  ichigoMapInstance=L.map(container,{zoomControl:true,attributionControl:true}).setView(fallback,12);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(ichigoMapInstance);
+  const bounds=[];
+  places.forEach(p=>{const m=L.marker([p.lat,p.lng]).addTo(ichigoMapInstance);m.bindPopup(`<strong>${esc(p.name)}</strong><br>${esc(p.area||p.category)}<br><a href="${esc(preferredMapUrlV3(p))}" target="_blank" rel="noopener">Open in ${state.settings.mapApp==="apple"?"Apple":"Google"} Maps</a>`);bounds.push([p.lat,p.lng])});
+  activities.sort(activitySort).forEach(a=>{const m=L.circleMarker([a.lat,a.lng],{radius:8,color:"#ff4f78",fillColor:"#ff6f91",fillOpacity:.86}).addTo(ichigoMapInstance);m.bindPopup(`<strong>🍓 ${esc(a.title)}</strong><br>${esc(formatTimeV3(a.time))}<br><a href="${esc(preferredMapUrlV3(a))}" target="_blank" rel="noopener">Open map</a>`);bounds.push([a.lat,a.lng])});
+  if(chosenDay!=="all"&&activities.length>1)L.polyline(activities.sort(activitySort).map(a=>[a.lat,a.lng]),{color:"#ff6f91",weight:4,opacity:.68,dashArray:"7 7"}).addTo(ichigoMapInstance);
+  if(bounds.length>1)ichigoMapInstance.fitBounds(bounds,{padding:[25,25],maxZoom:15});
+  setTimeout(()=>ichigoMapInstance?.invalidateSize(),80);
+}
+
+/* ---------- Today Mode 3.0 ---------- */
+function timelineStateV3(date,t=trip()) {
+  const items=activitiesOn(date,t), isToday=date===isoToday(), now=new Date(), nowMin=now.getHours()*60+now.getMinutes();
+  let current=null,next=null;const overdue=[];
+  if(!isToday){next=items.find(x=>!x.completed)||items[0]||null;return{items,current,next,overdue,isToday,nowMin}}
+  for(const item of items){
+    if(item.completed)continue;
+    const start=minutesFromTime(item.time),end=start==null?null:start+Number(item.duration||60);
+    if(start!=null&&nowMin>=start&&nowMin<end&&!current)current=item;
+    else if(start!=null&&nowMin>=end)overdue.push(item);
+    else if(start!=null&&nowMin<start&&!next)next=item;
+  }
+  if(!current&&!next)next=items.find(x=>!x.completed&&x.flexible)||null;
+  return{items,current,next,overdue,isToday,nowMin};
+}
+
+function countdownLabelV3(item,nowMin) {
+  if(!item?.time)return "Anytime";const start=minutesFromTime(item.time),diff=start-nowMin;if(diff<=0)return "Now";if(diff<60)return `in ${diff} min`;const h=Math.floor(diff/60),m=diff%60;return m?`in ${h}h ${m}m`:`in ${h}h`;
+}
+
+function renderToday() {
+  const t=trip(),date=activeDate(t),ts=timelineStateV3(date,t),daily=spentDate(date,t),bookings=t.bookings.filter(b=>b.date===date).sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99"));
+  const focus=ts.current||ts.next;
+  main.innerHTML=`<section class="today-header"><p class="eyebrow" style="color:#8b3044!important">${esc(t.cityLabel||t.destination)} · DAY ${dayNo(date,t)}</p><h1>${nice(date,{weekday:"long",month:"long",day:"numeric"})}</h1><p>${ts.isToday?"Your live travel day":"Previewing Today Mode"}</p></section>
+    ${focus?`<section class="card today-focus"><div class="badge ${ts.current?"green":""}">${ts.current?"HAPPENING NOW":"NEXT"}</div><div class="countdown">${ts.current?`${Math.max(1,Math.ceil((minutesFromTime(focus.time)+Number(focus.duration||60)-ts.nowMin)))} min left`:ts.isToday?countdownLabelV3(focus,ts.nowMin):"Up next"}</div><h3>${ICON[focus.type]||"📍"} ${esc(focus.title)}</h3><p>${esc(focus.place||focus.address||"")} · ${focus.flexible?"Anytime":esc(formatTimeV3(focus.time))}</p><div class="activity-actions"><button class="tiny-btn primary" data-action="arrived-v3" data-id="${focus.id}">📍 I'm here</button><button class="tiny-btn" data-action="complete-activity-v3" data-id="${focus.id}">✓ Done</button><a class="tiny-btn" href="${esc(preferredMapUrlV3(focus))}" target="_blank" rel="noopener">Map</a>${bookings.length?`<button class="tiny-btn" data-action="open-bookings-v3">🎟 Booking</button>`:""}</div></section>`:empty("🌸","A free day","Nothing is scheduled for this day yet.","activity")}
+    ${ts.overdue.length?`<section class="notice-card danger" style="margin-top:10px"><span class="notice-icon">⏰</span><span><strong>${ts.overdue.length} unfinished item${ts.overdue.length===1?"":"s"} passed their planned time.</strong><p>You can mark them done or keep going — Ichigo won't change the itinerary automatically.</p></span></section>`:""}
+    <section class="card" style="padding:16px;margin-top:12px"><div class="section-title"><h3>Today’s timeline</h3><span class="meta">${ts.items.filter(x=>x.completed).length}/${ts.items.length} done</span></div><div class="today-timeline-v3">${ts.items.length?ts.items.map(i=>`<article class="today-line-v3 ${i.completed?"done":""} ${ts.current?.id===i.id?"current":""}"><span>${i.flexible?"Anytime":esc(formatTimeV3(i.time))}</span><div><strong>${esc(i.title)}</strong><small>${esc(i.place||"")}</small></div><button class="tiny-btn" data-action="complete-activity-v3" data-id="${i.id}">${i.completed?"Undo":"Done"}</button></article>`).join(""):"<p class='meta'>No activities yet.</p>"}</div></section>
+    <section class="card" style="padding:16px;margin-top:12px;background:linear-gradient(145deg,#fff,#fff0f3)"><div class="section-title"><h3>Today’s spending</h3><span>${money(daily)} / ${money(t.dailyBudget)}</span></div><div class="progress"><span style="width:${Math.min(100,t.dailyBudget?daily/t.dailyBudget*100:0)}%"></span></div></section>
+    ${bookings.length?`<section class="section"><div class="section-title"><h3>🎟 Today’s bookings</h3><button data-action="open-bookings-v3">View all</button></div><div class="list">${bookingRows(bookings.slice(0,3))}</div></section>`:""}
+    <section class="section"><div class="grid-3"><button class="btn soft" data-action="quick-add-type" data-type="expense">＋ Expense</button><button class="btn soft" data-action="open-feature" data-feature="converter">💱 Convert</button><button class="btn soft" data-action="today-essentials-v2">🆘 Essentials</button></div></section>`;
+}
+
+/* ---------- CRUD polish: bookings, essentials and travelers ---------- */
+function bookingRows(arr) {
+  return arr.map(b=>`<div class="list-row">${b.attachmentKey?fileSlot(b.attachmentKey,b.attachmentName?.toLowerCase().endsWith(".pdf")?"file":"image","booking-attachment"):`<div class="row-icon">${bookEmoji(b.type)}</div>`}<div class="row-main"><h4>${esc(b.title)}</h4><p>${nice(b.date)}${b.time?` · ${esc(formatTimeV3(b.time))}`:""}${b.endDate?` → ${nice(b.endDate)}`:""}</p><p>${esc(b.confirmation||"No confirmation")} ${b.address?`· ${esc(b.address)}`:""}</p></div><div class="row-trailing"><span class="pill">${esc(b.status||"Saved")}</span><div style="margin-top:5px"><button class="tiny-btn" data-action="edit-booking-v2" data-id="${b.id}">Edit</button></div>${b.address?`<div style="margin-top:5px"><a class="tiny-btn" href="${esc(preferredMapUrlV3({title:b.title,address:b.address}))}" target="_blank" rel="noopener">Map</a></div>`:""}${b.link?`<div style="margin-top:5px"><a class="tiny-btn" href="${esc(b.link)}" target="_blank" rel="noopener">Open</a></div>`:""}<div style="margin-top:5px"><button class="tiny-btn danger" data-action="delete-v2" data-collection="bookings" data-id="${b.id}">Delete</button></div></div></div>`).join("");
+}
+
+function contactFormHTMLV3(item={}) {return `<form id="contactFormV3" data-edit-id="${item.id||""}" class="form-grid"><div class="form-row"><label>NAME</label><input name="name" required value="${esc(item.name||"")}"></div><div class="form-row"><label>PHONE</label><input name="phone" required value="${esc(item.phone||"")}"></div><div class="form-row"><label>NOTE</label><input name="note" value="${esc(item.note||"")}"></div><button class="btn primary">Save contact</button></form>`}
+function documentFormHTMLV3(item={}) {return `<form id="documentFormV3" data-edit-id="${item.id||""}" class="form-grid"><div class="form-row"><label>DOCUMENT</label><input name="name" required value="${esc(item.name||"")}"></div><div class="form-row"><label>REFERENCE / NOTE</label><textarea name="reference">${esc(item.reference||"")}</textarea></div><button class="btn primary">Save document</button></form>`}
+function phraseFormHTMLV3(item={}) {return `<form id="phraseFormV3" data-edit-id="${item.id||""}" class="form-grid"><div class="form-row"><label>LOCAL LANGUAGE</label><input name="jp" required value="${esc(item.jp||"")}"></div><div class="form-row"><label>PRONUNCIATION</label><input name="romaji" value="${esc(item.romaji||"")}"></div><div class="form-row"><label>MEANING</label><input name="en" value="${esc(item.en||"")}"></div><button class="btn primary">Save phrase</button></form>`}
+
+function essentialsHTMLV2() {
+  const e=trip().essentials;
+  return `<div class="section-title"><h3>🆘 Offline Travel Essentials</h3><button data-action="edit-essentials-v2">Edit</button></div><div class="notice-card success"><span class="notice-icon">✈️</span><span><strong>Designed for offline access</strong><p>Hotel, insurance, emergency contacts, document references and phrases stay with this trip on your device.</p></span></div><div class="essentials-grid" style="margin-top:10px"><div class="card essential-card"><h3>🏨 Stay</h3><div class="essential-value"><strong>${esc(e.hotelName||"No hotel saved")}</strong>${e.hotelAddress?`\n${esc(e.hotelAddress)}`:""}${e.hotelPhone?`\n☎ ${esc(e.hotelPhone)}`:""}</div></div><div class="card essential-card"><h3>🛡️ Insurance</h3><div class="essential-value"><strong>${esc(e.insuranceProvider||"No insurance saved")}</strong>${e.insurancePolicy?`\nPolicy: ${esc(e.insurancePolicy)}`:""}${e.insurancePhone?`\n☎ ${esc(e.insurancePhone)}`:""}</div></div><div class="card essential-card"><h3>🩺 Medical / safety notes</h3><div class="essential-value">${esc(e.medicalNotes||"No notes saved")}</div></div><div class="card essential-card"><h3>🚃 Transport notes</h3><div class="essential-value">${esc(e.transitNotes||"No notes saved")}</div></div></div>
+  <section class="section"><div class="section-title"><h3>Emergency contacts</h3><button data-action="add-contact-v3">＋ Contact</button></div><div class="card" style="padding:8px 13px">${e.contacts.length?e.contacts.map(c=>`<div class="contact-row"><div class="row-icon">☎️</div><div class="row-main"><h4>${esc(c.name)}</h4><p>${esc(c.phone)} ${c.note?`· ${esc(c.note)}`:""}</p></div><button class="tiny-btn" data-action="edit-contact-v3" data-id="${c.id}">Edit</button><button class="tiny-btn danger" data-action="delete-essential-v2" data-kind="contacts" data-id="${c.id}">✕</button></div>`).join(""):`<div class="empty"><p>Add family, insurance or important contacts.</p></div>`}</div></section>
+  <section class="section"><div class="section-title"><h3>Document references</h3><button data-action="add-document-v3">＋ Document</button></div><div class="list">${e.documents.length?e.documents.map(d=>`<div class="list-row"><div class="row-icon">📄</div><div class="row-main"><h4>${esc(d.name)}</h4><p>${esc(d.reference||"")}</p></div><button class="tiny-btn" data-action="edit-document-v3" data-id="${d.id}">Edit</button><button class="tiny-btn danger" data-action="delete-essential-v2" data-kind="documents" data-id="${d.id}">✕</button></div>`).join(""):empty("📄","No document references","Save non-sensitive reference notes you want offline.")}</div></section>
+  <section class="section"><div class="section-title"><h3>Useful phrases</h3><button data-action="add-phrase-v3">＋ Phrase</button></div><div class="list">${e.phrases.length?e.phrases.map(p=>`<div class="phrase-card"><button style="all:unset;cursor:pointer;display:block;width:100%" data-action="copy-text-v2" data-text="${esc(p.jp)}"><div class="jp">${esc(p.jp)}</div><div class="romaji">${esc(p.romaji||"")}</div><div class="translation">${esc(p.en||"")}</div></button><div class="activity-actions"><button class="tiny-btn" data-action="edit-phrase-v3" data-id="${p.id}">Edit</button><button class="tiny-btn danger" data-action="delete-essential-v2" data-kind="phrases" data-id="${p.id}">Delete</button></div></div>`).join(""):empty("💬","No phrases saved","Add useful phrases for offline access.")}</div></section>`;
+}
+
+function travelerFormHTMLV3(item={}) {return `<form id="travelerFormV3" data-edit-id="${item.id||""}" class="form-grid"><div class="form-row"><label>NAME</label><input name="name" required value="${esc(item.name||"")}"></div><div class="form-row two"><div><label>EMOJI</label><input name="emoji" value="${esc(item.emoji||"🙂")}"></div><div><label>ROLE</label><select name="role"><option ${item.role==="Owner"?"selected":""}>Owner</option><option ${item.role!=="Owner"?"selected":""}>Member</option></select></div></div><button class="btn primary">Save traveler</button></form>`}
+
+function renderTogether() {
+  const t=trip(),matches=t.places.filter(p=>{const v=Object.values(p.votes||{});return v.length&&t.travelers.length<=v.length&&v.every(x=>["❤️","👍"].includes(x))});
+  main.innerHTML=`<div class="page-head"><div><p class="eyebrow">TOGETHER</p><h1>Travel Together</h1><p>Plan, vote and split expenses</p></div><button class="btn soft" data-action="add-traveler-v3">＋ Traveler</button></div><section class="section"><div class="section-title"><h3>Travelers</h3></div><div class="card" style="padding:8px 13px">${t.travelers.map(x=>`<div class="list-row" style="border:0"><div class="row-icon">${x.emoji||"🙂"}</div><div class="row-main"><h4>${esc(x.name)}</h4><p>${esc(x.role)}</p></div><button class="tiny-btn" data-action="edit-traveler-v3" data-id="${x.id}">Edit</button>${t.travelers.length>1?`<button class="tiny-btn danger" data-action="delete-traveler-v3" data-id="${x.id}">Delete</button>`:""}</div>`).join("")}</div></section><section class="section"><div class="section-title"><h3>💗 Group Picks</h3><span class="meta">${matches.length} matches</span></div><div class="list">${matches.length?matches.map(p=>`<div class="list-row"><div class="row-icon">${categoryEmoji(p.category)}</div><div class="row-main"><h4>${esc(p.name)}</h4><p>${esc(p.area)} · everyone is interested</p></div><span>💗</span></div>`).join(""):empty("💗","No group matches yet","Vote on saved places to discover shared favorites.")}</div></section><section class="section">${splitHTML()}</section>`;
+}
+
+/* ---------- Trip customization + settings ---------- */
+function themeOptionsV3(selected) {return `<option value="inherit" ${selected==="inherit"?"selected":""}>Use app theme</option>${(window.ICHIGO_DATA?.themePresets||[]).map(x=>`<option value="${x.id}" ${selected===x.id?"selected":""}>${esc(x.label)}</option>`).join("")}`}
+
+function infoHTML() {
+  const t=trip();
+  return `<div class="card" style="padding:16px"><div class="form-grid"><div class="form-row"><label>TRIP NAME</label><input id="infoTitleV3" value="${esc(t.title)}"></div><div class="form-row two"><div><label>DESTINATION</label><input id="infoDestinationV3" value="${esc(t.destination)}"></div><div><label>FLAG / EMOJI</label><input id="infoEmojiV3" value="${esc(t.countryEmoji||"✈️")}"></div></div><div class="form-row two"><div><label>START</label><input id="infoStartV3" type="date" value="${t.startDate}"></div><div><label>END</label><input id="infoEndV3" type="date" value="${t.endDate}"></div></div><div class="form-row two"><div><label>BASE CURRENCY</label><select id="infoCurrencyV3">${currencyOptions(t.baseCurrency)}</select></div><div><label>HOME CURRENCY</label><select id="infoHomeCurrencyV3">${currencyOptions(t.homeCurrency)}</select></div></div><div class="form-row two"><div><label>TRIP THEME</label><select id="infoThemeV3">${themeOptionsV3(t.theme)}</select></div><div><label>CUSTOM ACCENT</label><input id="infoAccentV3" type="color" value="${/^#[0-9a-f]{6}$/i.test(t.accentColor)?t.accentColor:"#ff6f91"}"></div></div><label class="check-inline-v3"><input id="useCustomAccentV3" type="checkbox" ${t.accentColor?"checked":""}> Use this custom accent for the trip</label><button class="btn primary" data-action="save-trip-info-v3">Save trip info</button></div></div>
+  <div class="card" style="padding:16px;margin-top:10px"><div class="section-title"><h3>Trip cover</h3><span class="meta">used on your Travel Shelf</span></div>${t.coverKey?`<div class="shelf-cover" style="border-radius:17px;margin-bottom:9px"><div class="shelf-cover-photo" data-file-key="${t.coverKey}"></div></div>`:""}<input id="tripCoverInputV2" type="file" accept="image/*"><button class="btn soft full" style="margin-top:8px" data-action="save-cover-v2">Save cover photo</button></div>`;
+}
+
+function settingsHTML() {
+  const s=state.settings,n=s.notifications||{};
+  return `<div class="settings-stack-v3">
+    <section class="card settings-card-v3"><div class="section-title"><h3>⚙️ App preferences</h3></div><form id="settingsFormV3" class="form-grid"><div class="form-row two"><div><label>YOUR NAME</label><input name="travelerName" value="${esc(s.travelerName)}"></div><div><label>HOME COUNTRY</label><input name="homeCountry" value="${esc(s.homeCountry)}"></div></div><div class="form-row two"><div><label>HOME CURRENCY</label><select name="homeCurrency">${currencyOptions(s.homeCurrency)}</select></div><div><label>DEFAULT TRIP CURRENCY</label><select name="defaultTripCurrency">${currencyOptions(s.defaultTripCurrency)}</select></div></div><div class="form-row two"><div><label>DATE FORMAT</label><select name="dateFormat">${(window.ICHIGO_DATA?.dateFormats||[]).map(x=>`<option value="${x.id}" ${s.dateFormat===x.id?"selected":""}>${esc(x.label)}</option>`).join("")}</select></div><div><label>TIME FORMAT</label><select name="timeFormat">${(window.ICHIGO_DATA?.timeFormats||[]).map(x=>`<option value="${x.id}" ${s.timeFormat===x.id?"selected":""}>${esc(x.label)}</option>`).join("")}</select></div></div><div class="form-row two"><div><label>PREFERRED MAP</label><select name="mapApp">${(window.ICHIGO_DATA?.mapApps||[]).map(x=>`<option value="${x.id}" ${s.mapApp===x.id?"selected":""}>${esc(x.label)}</option>`).join("")}</select></div><div><label>APP THEME</label><select name="theme">${(window.ICHIGO_DATA?.themePresets||[]).map(x=>`<option value="${x.id}" ${s.theme===x.id?"selected":""}>${esc(x.label)}</option>`).join("")}</select></div></div><button class="btn primary">Save preferences</button></form></section>
+
+    <section class="card settings-card-v3"><div class="section-title"><h3>🔔 Reminders</h3><span class="meta">while Ichigo is open</span></div><p class="meta">Web PWAs can show reminders while the app is running. Closed-app scheduling on iPhone requires push/native support, which is intentionally not faked in Build 3.</p><div class="form-row two"><div><label>ACTIVITY LEAD</label><select id="activityLeadV3">${(window.ICHIGO_DATA?.reminderLeadOptions||[]).map(x=>`<option value="${x}" ${Number(n.activityLead)===x?"selected":""}>${x} min</option>`).join("")}</select></div><div><label>BOOKING LEAD</label><select id="bookingLeadV3">${(window.ICHIGO_DATA?.reminderLeadOptions||[]).map(x=>`<option value="${x}" ${Number(n.bookingLead)===x?"selected":""}>${x} min</option>`).join("")}</select></div></div><div class="btn-row" style="margin-top:9px"><button class="btn soft" data-action="enable-notifications-v3">Enable reminders</button><button class="btn" data-action="save-reminder-settings-v3">Save reminder timing</button></div><p class="inline-help">Permission: <strong>${window.Notification?.permission||"not supported"}</strong></p></section>
+
+    <section class="card settings-card-v3"><div class="section-title"><h3>💾 Full backup & restore</h3></div><p class="meta">Build 3 backups include trip data plus IndexedDB photos, receipts, covers and attachments.</p><div class="btn-row"><button class="btn soft" data-action="export-full-backup-v3">Export full backup</button><button class="btn" data-action="import-full-backup-v3">Restore backup</button></div><input id="importFullBackupV3" type="file" accept="application/json" hidden><div class="storage-line-v3"><span>Local files</span><strong id="dbStatsV3">Checking…</strong></div><div class="storage-line-v3"><span>Browser storage</span><strong id="storageEstimateV3">Checking…</strong></div></section>
+
+    <section class="card settings-card-v3"><div class="section-title"><h3>⬆️ App updates</h3></div><p class="meta">Ichigo checks the service worker for a newer GitHub Pages build and shows an update banner when one is ready.</p><div class="btn-row"><button class="btn soft" data-action="force-update-check-v3">Check for update</button><button class="btn" data-action="install-app">Install Ichigo</button></div></section>
+
+    <section class="card settings-card-v3"><div class="section-title"><h3>🧪 Testing & debug</h3></div><div class="diagnostic-grid-v3"><span>App</span><strong>${APP_VERSION_V3}</strong><span>Schema</span><strong>v${APP_SCHEMA_VERSION_V3}</strong><span>Cache</span><strong>${CACHE_VERSION_V3}</strong><span>Network</span><strong>${navigator.onLine?"Online":"Offline"}</strong><span>Notifications</span><strong>${window.Notification?.permission||"N/A"}</strong></div><div class="btn-row wrap-v3" style="margin-top:10px"><button class="btn soft" data-action="run-selftest-v3">Run self-test</button><button class="btn" data-action="copy-diagnostics-v3">Copy diagnostics</button><button class="btn" data-action="clear-caches-v3">Clear app caches</button></div></section>
+
+    <section class="card settings-card-v3"><button class="btn danger full" data-action="reset-demo">Reset demo data</button></section>
+  </div>`;
+}
+
+function tripFormHTMLV3() {
+  const s=state.settings;return `<form id="tripFormV3" class="form-grid"><div class="form-row"><label>TRIP NAME</label><input name="title" required placeholder="Seoul 2027"></div><div class="form-row"><label>DESTINATION</label><input name="destination" required></div><div class="form-row two"><div><label>START</label><input name="startDate" type="date" required></div><div><label>END</label><input name="endDate" type="date" required></div></div><div class="form-row two"><div><label>FLAG / EMOJI</label><input name="countryEmoji" value="✈️"></div><div><label>CURRENCY</label><select name="baseCurrency">${currencyOptions(s.defaultTripCurrency)}</select></div></div><button class="btn primary">Create trip</button></form>`;
+}
+function newTrip(){openModal("Create Trip",tripFormHTMLV3())}
+
+/* ---------- Foreground reminders ---------- */
+function reminderLogV3(){try{return JSON.parse(localStorage.getItem(REMINDER_LOG_V3)||"{}") }catch{return{}}}
+function rememberReminderV3(key){const log=reminderLogV3();log[key]=Date.now();const cutoff=Date.now()-14*86400000;Object.keys(log).forEach(k=>{if(log[k]<cutoff)delete log[k]});localStorage.setItem(REMINDER_LOG_V3,JSON.stringify(log))}
+function minutesToV3(date,time){if(!date||!time)return null;const [h,m]=time.split(":").map(Number),d=parseDate(date);d.setHours(h,m,0,0);return Math.round((d-Date.now())/60000)}
+function sendReminderV3(key,title,body){if(reminderLogV3()[key])return;rememberReminderV3(key);if(window.Notification?.permission==="granted"){try{new Notification(title,{body,icon:"./icons/icon-192.png",tag:key})}catch{notify(body)}}else notify(body)}
+function checkRemindersV3(){const s=state.settings?.notifications;if(!s?.enabled)return;const t=trip();t.itinerary.filter(x=>!x.completed&&x.date&&x.time).forEach(x=>{const mins=minutesToV3(x.date,x.time),lead=Number(x.reminderLead??s.activityLead);if(mins!=null&&mins<=lead&&mins>=0)sendReminderV3(`${t.id}:activity:${x.id}:${x.date}`,"Ichigo · Activity soon",`${x.title} starts ${mins<=1?"now":`in ${mins} minutes`}.`) });t.bookings.filter(x=>x.date&&x.time).forEach(x=>{const mins=minutesToV3(x.date,x.time),lead=Number(x.reminderLead??s.bookingLead);if(mins!=null&&mins<=lead&&mins>=0)sendReminderV3(`${t.id}:booking:${x.id}:${x.date}`,"Ichigo · Booking soon",`${x.title} is ${mins<=1?"now":`in ${mins} minutes`}.`) });if(s.taskDue)t.preTrip.filter(x=>!x.done&&x.dueDate===isoToday()).forEach(x=>sendReminderV3(`${t.id}:task:${x.id}:${x.dueDate}`,"Ichigo · Task due",x.name))}
+function startReminderEngineV3(){if(reminderTimerV3)return;checkRemindersV3();reminderTimerV3=setInterval(checkRemindersV3,30000)}
+
+/* ---------- Full backup ---------- */
+async function exportFullBackupV3(){try{notify("Preparing backup…");const files=await IchigoDB.exportAll();const payload={format:"ichigo-full-backup",backupVersion:1,appVersion:APP_VERSION_V3,schemaVersion:APP_SCHEMA_VERSION_V3,exportedAt:new Date().toISOString(),state,files};download(`ichigo-full-backup-${isoToday()}.json`,JSON.stringify(payload));notify(`Backup ready · ${files.length} local file${files.length===1?"":"s"}`)}catch(err){console.error(err);notify("Backup couldn't be created.")}}
+async function restoreFullBackupV3(file){try{const payload=JSON.parse(await file.text());if(payload.format!=="ichigo-full-backup"||!payload.state)throw Error("Invalid Ichigo backup");if(!confirm("Restore this backup? Current local Ichigo data and stored images will be replaced."))return;state=payload.state;ensureStateV3();state.trips=(state.trips||[]).map(ensureTripV3);await IchigoDB.importAll(payload.files||[],{clearFirst:true});save();render();notify("Ichigo backup restored ✓")}catch(err){console.error(err);alert("That file is not a valid Ichigo full backup.")}}
+
+async function updateStorageDiagnosticsV3(){if(state.currentView!=="trip"||state.tripView!=="settings")return;try{const s=await IchigoDB.stats(),el=document.querySelector("#dbStatsV3");if(el)el.textContent=`${s.count} files · ${formatBytesV3(s.bytes)}`}catch{}try{const est=await navigator.storage?.estimate?.(),el=document.querySelector("#storageEstimateV3");if(el&&est)el.textContent=`${formatBytesV3(est.usage||0)} used${est.quota?` / ${formatBytesV3(est.quota)}`:""}`}catch{}}
+function formatBytesV3(n){n=Number(n||0);if(n<1024)return`${n} B`;if(n<1048576)return`${(n/1024).toFixed(1)} KB`;if(n<1073741824)return`${(n/1048576).toFixed(1)} MB`;return`${(n/1073741824).toFixed(1)} GB`}
+
+/* ---------- Service-worker update UI ---------- */
+function showUpdateBannerV3(reg){pendingSWRegistrationV3=reg;const host=document.querySelector("#appUpdateHost");if(!host||host.querySelector(".update-banner-v3"))return;host.innerHTML=`<div class="update-banner-v3"><span>🍓 <strong>A new Ichigo version is ready.</strong></span><button class="tiny-btn primary" data-action="apply-update-v3">Update</button></div>`}
+async function setupServiceWorkerUpdatesV3(){if(!("serviceWorker" in navigator))return;try{const reg=await navigator.serviceWorker.getRegistration();if(!reg)return;if(reg.waiting)showUpdateBannerV3(reg);reg.addEventListener("updatefound",()=>{const w=reg.installing;if(!w)return;w.addEventListener("statechange",()=>{if(w.state==="installed"&&navigator.serviceWorker.controller)showUpdateBannerV3(reg)})});navigator.serviceWorker.addEventListener("controllerchange",()=>{if(reloadForUpdateV3)return;reloadForUpdateV3=true;location.reload()})}catch(err){console.warn(err)}}
+
+/* ---------- Onboarding ---------- */
+const ONBOARDING_V3=[
+  ["🍓","Welcome to Ichigo","Your trip changes with you: plan it, use Today Mode while traveling, then keep it as a scrapbook."],
+  ["📥","Start messy on purpose","Throw links, screenshots and random ideas into Trip Inbox. Organize them later."],
+  ["🌸","Today Mode is your travel screen","Current plan, next stop, spending, map and essentials stay close while you're moving."],
+  ["📚","Trips become keepsakes","Afterward, Memories, Scrapbook, Trip Recap and your Travel Shelf keep old trips useful."]
+];
+function onboardingHTMLV3(step){const [emoji,title,text]=ONBOARDING_V3[step];return `<div class="onboarding-v3"><div class="onboarding-emoji-v3">${emoji}</div><p class="eyebrow">STEP ${step+1} OF ${ONBOARDING_V3.length}</p><h2>${title}</h2><p>${text}</p><div class="onboarding-dots-v3">${ONBOARDING_V3.map((_,i)=>`<i class="${i===step?"active":""}"></i>`).join("")}</div><div class="btn-row"><button class="btn" data-action="onboarding-skip-v3">Skip</button><button class="btn primary" data-action="onboarding-next-v3" data-step="${step}">${step===ONBOARDING_V3.length-1?"Start planning":"Next"}</button></div></div>`}
+function maybeShowOnboardingV3(){if(onboardingShownV3||state.onboarding?.completed||modalRoot.firstElementChild)return;onboardingShownV3=true;setTimeout(()=>openModal("Welcome to Ichigo",onboardingHTMLV3(Number(state.onboarding?.step||0))),120)}
+
+/* ---------- Debug ---------- */
+async function diagnosticsV3(){const fileStats=await IchigoDB.stats().catch(()=>({count:-1,bytes:0})),cacheKeys=await caches.keys().catch(()=>[]),reg=await Promise.resolve(navigator.serviceWorker?.getRegistration?.()).catch(()=>null),storage=await Promise.resolve(navigator.storage?.estimate?.()).catch(()=>null);return{appVersion:APP_VERSION_V3,schemaVersion:state.schemaVersion,tripCount:state.trips.length,currentTrip:trip().title,online:navigator.onLine,notificationPermission:window.Notification?.permission||"unsupported",serviceWorker:reg?{active:!!reg.active,waiting:!!reg.waiting,installing:!!reg.installing}:"none",caches:cacheKeys,files:fileStats,storage,platform:navigator.userAgent,generatedAt:new Date().toISOString()}}
+async function runSelfTestV3(){const tests=[];const add=(name,ok,detail="")=>tests.push({name,ok,detail});try{add("Structured state",Array.isArray(state.trips)&&!!trip().id,`${state.trips.length} trip(s)`)}catch(e){add("Structured state",false,e.message)}try{await IchigoDB.open();add("IndexedDB",true,`DB v${IchigoDB.DB_VERSION}`)}catch(e){add("IndexedDB",false,e.message)}try{const reg=await navigator.serviceWorker?.getRegistration?.();add("Service worker",!!reg,reg?.active?"Active":"Not active yet")}catch(e){add("Service worker",false,e.message)}try{const response=await fetch("./manifest.json",{cache:"no-store"});add("Manifest",response.ok,`HTTP ${response.status}`)}catch(e){add("Manifest",false,"Unavailable offline or fetch failed")}add("Current trip arrays",[trip().itinerary,trip().places,trip().bookings,trip().expenses,trip().memories,trip().inbox].every(Array.isArray),"Core collections readable");openModal("Ichigo Self-Test",`<div class="selftest-v3">${tests.map(x=>`<div class="selftest-row-v3 ${x.ok?"pass":"fail"}"><span>${x.ok?"✓":"!"}</span><div><strong>${esc(x.name)}</strong><small>${esc(x.detail)}</small></div></div>`).join("")}</div>`) }
+
+/* ---------- Launch shortcuts ---------- */
+function applyLaunchShortcut(){const shortcut=location.hash.replace("#","").toLowerCase();if(shortcut==="today")state.currentView="today";if(shortcut==="expense"){state.currentView="spend";state.spendView="expenses";setTimeout(()=>quick("expense"),120)}if(shortcut==="inbox"){state.currentView="plan";state.planView="inbox"}if(shortcut==="search")state.launchActionV3="search";if(shortcut)history.replaceState(null,"",location.pathname+location.search)}
+
+/* ---------- Build 3 actions ---------- */
+document.addEventListener("click",async event=>{
+  const el=event.target.closest("[data-action]");if(!el)return;const a=el.dataset.action,t=trip();
+  if(a==="open-search-v3")openSearchV3();
+  if(a==="search-result-v3")goToSearchResultV3(el.dataset.kind);
+  if(a==="add-inbox-v3")openModal("Add to Trip Inbox",inboxFormHTMLV3());
+  if(a==="edit-inbox-v3"){const x=t.inbox.find(i=>i.id===el.dataset.id);if(x)openModal("Edit Inbox Item",inboxFormHTMLV3(x))}
+  if(a==="archive-inbox-v3"){const x=t.inbox.find(i=>i.id===el.dataset.id);if(x)x.status=x.status==="archived"?"inbox":"archived";save();render()}
+  if(a==="delete-inbox-v3"){const x=t.inbox.find(i=>i.id===el.dataset.id);if(!x||!confirm("Delete this inbox item?"))return;if(x.fileKey)await IchigoDB.remove(x.fileKey).catch(()=>{});t.inbox=t.inbox.filter(i=>i.id!==x.id);save();render()}
+  if(a==="convert-inbox-place-v3"){const x=t.inbox.find(i=>i.id===el.dataset.id);if(x){t.places.push(ensureTripV2({places:[{id:uuid(),name:x.title,area:"",category:x.type==="Food"?"Restaurant":"Other",notes:x.note,mapUrl:x.url,votes:{},visited:false}],itinerary:[],bookings:[],packing:[],preTrip:[],expenses:[],memories:[],travelers:[],startDate:t.startDate,endDate:t.endDate,totalBudget:0,destination:t.destination,title:"tmp"}).places[0]);x.status="archived";state.planView="places";save();render();notify("Moved into Places ✓")}}
+  if(a==="convert-inbox-activity-v3"){const x=t.inbox.find(i=>i.id===el.dataset.id);if(x){t.itinerary.push({id:uuid(),date:state.activeItineraryDate||activeDate(t),time:"",duration:60,travelTime:0,type:"place",title:x.title,place:"",address:"",notes:[x.note,x.url].filter(Boolean).join(" · "),flexible:true,order:activitiesOn(state.activeItineraryDate||activeDate(t),t).length,lat:null,lng:null,completed:false});x.status="archived";state.planView="itinerary";save();render();notify("Moved into Itinerary ✓")}}
+  if(a==="show-itinerary-date-v3"){state.activeItineraryDate=el.dataset.date;save();render()}
+  if(a==="toggle-day-collapse-v3"){const key=`${t.id}:${el.dataset.date}`;state.collapsedDays[key]=!state.collapsedDays[key];save();render()}
+  if(a==="duplicate-day-v3")duplicateDayModalV3(el.dataset.date);
+  if(a==="move-activity-step-v3"){const day=activitiesOn(t.itinerary.find(x=>x.id===el.dataset.id)?.date||"",t),idx=day.findIndex(x=>x.id===el.dataset.id),target=idx+Number(el.dataset.step);if(idx>=0&&target>=0&&target<day.length){[day[idx],day[target]]=[day[target],day[idx]];day.forEach((x,i)=>x.order=i);save();render()}}
+  if(a==="arrived-v3"){const item=t.itinerary.find(x=>x.id===el.dataset.id);if(item){item.arrivedAt=new Date().toISOString();const words=`${item.title} ${item.place}`.toLowerCase();const p=t.places.find(p=>words.includes(p.name.toLowerCase())||`${p.name} ${p.area}`.toLowerCase().includes((item.place||"").toLowerCase()));if(p)p.visited=true;save();render();notify("Marked as arrived 📍")}}
+  if(a==="complete-activity-v3"){const item=t.itinerary.find(x=>x.id===el.dataset.id);if(item){item.completed=!item.completed;item.completedAt=item.completed?new Date().toISOString():"";save();render()}}
+  if(a==="open-bookings-v3"){state.currentView="plan";state.planView="bookings";save();render()}
+  if(a==="add-traveler-v3")openModal("Add Traveler",travelerFormHTMLV3());
+  if(a==="edit-traveler-v3"){const x=t.travelers.find(i=>i.id===el.dataset.id);if(x)openModal("Edit Traveler",travelerFormHTMLV3(x))}
+  if(a==="delete-traveler-v3"){if(t.travelers.length<=1)return;const id=el.dataset.id;if(confirm("Remove this traveler from the trip?")){t.travelers=t.travelers.filter(x=>x.id!==id);save();render()}}
+  if(a==="add-contact-v3")openModal("Add Emergency Contact",contactFormHTMLV3());
+  if(a==="edit-contact-v3"){const x=t.essentials.contacts.find(i=>i.id===el.dataset.id);if(x)openModal("Edit Contact",contactFormHTMLV3(x))}
+  if(a==="add-document-v3")openModal("Add Document Reference",documentFormHTMLV3());
+  if(a==="edit-document-v3"){const x=t.essentials.documents.find(i=>i.id===el.dataset.id);if(x)openModal("Edit Document",documentFormHTMLV3(x))}
+  if(a==="add-phrase-v3")openModal("Add Phrase",phraseFormHTMLV3());
+  if(a==="edit-phrase-v3"){const x=t.essentials.phrases.find(i=>i.id===el.dataset.id);if(x)openModal("Edit Phrase",phraseFormHTMLV3(x))}
+  if(a==="save-trip-info-v3"){t.title=document.querySelector("#infoTitleV3").value.trim()||t.title;t.destination=document.querySelector("#infoDestinationV3").value.trim()||t.destination;t.countryEmoji=document.querySelector("#infoEmojiV3").value.trim()||"✈️";t.startDate=document.querySelector("#infoStartV3").value||t.startDate;t.endDate=document.querySelector("#infoEndV3").value||t.endDate;t.baseCurrency=document.querySelector("#infoCurrencyV3").value;t.homeCurrency=document.querySelector("#infoHomeCurrencyV3").value;t.theme=document.querySelector("#infoThemeV3").value;t.accentColor=document.querySelector("#useCustomAccentV3").checked?document.querySelector("#infoAccentV3").value:"";save();render();notify("Trip customization saved ✓")}
+  if(a==="enable-notifications-v3"){if(!window.Notification){notify("Notifications aren't supported in this browser.");return}const p=await Notification.requestPermission();state.settings.notifications.enabled=p==="granted";save();notify(p==="granted"?"Reminders enabled ✓":"Notification permission wasn't granted.")}
+  if(a==="save-reminder-settings-v3"){state.settings.notifications.activityLead=Number(document.querySelector("#activityLeadV3")?.value||15);state.settings.notifications.bookingLead=Number(document.querySelector("#bookingLeadV3")?.value||60);save();notify("Reminder timing saved")}
+  if(a==="export-full-backup-v3")await exportFullBackupV3();
+  if(a==="import-full-backup-v3")document.querySelector("#importFullBackupV3")?.click();
+  if(a==="force-update-check-v3"){const reg=await navigator.serviceWorker?.getRegistration?.();if(reg){await reg.update();if(reg.waiting)showUpdateBannerV3(reg);else notify("Ichigo checked for updates.")}else notify("No service worker registration found.")}
+  if(a==="apply-update-v3"){const reg=pendingSWRegistrationV3||await navigator.serviceWorker?.getRegistration?.();if(reg?.waiting){reloadForUpdateV3=false;reg.waiting.postMessage({type:"SKIP_WAITING"});notify("Updating Ichigo…")}}
+  if(a==="run-selftest-v3")await runSelfTestV3();
+  if(a==="copy-diagnostics-v3"){await copyTextV2(JSON.stringify(await diagnosticsV3(),null,2));notify("Diagnostics copied ✓")}
+  if(a==="clear-caches-v3"){if(confirm("Clear Ichigo's service-worker caches? Your saved trip data and photos will not be deleted.")){for(const k of await caches.keys())if(k.startsWith("ichigo-"))await caches.delete(k);notify("App caches cleared. Reload to fetch fresh files.")}}
+  if(a==="onboarding-skip-v3"){state.onboarding.completed=true;save();closeModal()}
+  if(a==="onboarding-next-v3"){const step=Number(el.dataset.step||0);if(step>=ONBOARDING_V3.length-1){state.onboarding.completed=true;state.onboarding.step=0;save();closeModal();notify("Welcome to Ichigo 🍓")}else{state.onboarding.step=step+1;save();modalRoot.querySelector("#modalBody").innerHTML=onboardingHTMLV3(step+1)}}
+});
+
+document.addEventListener("input",event=>{if(event.target.id==="globalSearchV3"){const results=document.querySelector("#globalSearchResultsV3");if(results)results.innerHTML=searchResultsHTMLV3(event.target.value)}});
+document.addEventListener("change",async event=>{const x=event.target;if(["mapSourceV3","mapDayV3","mapCategoryV3"].includes(x.id)){if(x.id==="mapSourceV3")state.mapFilters.source=x.value;if(x.id==="mapDayV3")state.mapFilters.day=x.value;if(x.id==="mapCategoryV3")state.mapFilters.category=x.value;save();initIchigoMapV2()}if(x.id==="importFullBackupV3"&&x.files?.[0])await restoreFullBackupV3(x.files[0])});
+
+document.addEventListener("submit",async event=>{
+  const f=event.target;if(!f.id?.endsWith("V3"))return;event.preventDefault();const d=Object.fromEntries(new FormData(f).entries()),t=trip(),editId=f.dataset.editId||"";
+  if(f.id==="inboxFormV3"){const old=editId?t.inbox.find(x=>x.id===editId):null,item=old||{id:uuid(),status:"inbox",createdAt:Date.now(),fileKey:""};const input=f.querySelector('[name="attachment"]');if(input?.files?.[0]){try{const blob=await IchigoDB.compressImage(input.files[0],1400,.78);if(item.fileKey)await IchigoDB.remove(item.fileKey);item.fileKey=await IchigoDB.put(blob,{name:input.files[0].name,kind:"inbox"})}catch{notify("Screenshot couldn't be stored, but the inbox item will be saved.")}}Object.assign(item,{type:d.type,title:d.title.trim(),url:d.url.trim(),note:d.note.trim()});if(!old)t.inbox.push(item);save();closeModal();state.currentView="plan";state.planView="inbox";save();render();notify(editId?"Inbox item updated":"Saved to Trip Inbox")}
+  if(f.id==="duplicateDayFormV3"){const src=f.dataset.sourceDate,target=d.targetDate,copies=activitiesOn(src,t).map((x,i)=>({...clone(x),id:uuid(),date:target,order:activitiesOn(target,t).length+i,completed:false,completedAt:"",arrivedAt:""}));t.itinerary.push(...copies);renumberDay(target,t);state.activeItineraryDate=target;save();closeModal();render();notify(`Copied ${copies.length} activities to Day ${dayNo(target,t)}`)}
+  if(f.id==="travelerFormV3"){const old=editId?t.travelers.find(x=>x.id===editId):null,item=old||{id:uuid()};Object.assign(item,{name:d.name.trim(),emoji:d.emoji.trim()||"🙂",role:d.role});if(!old)t.travelers.push(item);save();closeModal();render();notify(editId?"Traveler updated":"Traveler added")}
+  if(f.id==="contactFormV3"){const old=editId?t.essentials.contacts.find(x=>x.id===editId):null,item=old||{id:uuid()};Object.assign(item,{name:d.name.trim(),phone:d.phone.trim(),note:d.note.trim()});if(!old)t.essentials.contacts.push(item);save();closeModal();render()}
+  if(f.id==="documentFormV3"){const old=editId?t.essentials.documents.find(x=>x.id===editId):null,item=old||{id:uuid()};Object.assign(item,{name:d.name.trim(),reference:d.reference.trim()});if(!old)t.essentials.documents.push(item);save();closeModal();render()}
+  if(f.id==="phraseFormV3"){const old=editId?t.essentials.phrases.find(x=>x.id===editId):null,item=old||{id:uuid()};Object.assign(item,{jp:d.jp.trim(),romaji:d.romaji.trim(),en:d.en.trim()});if(!old)t.essentials.phrases.push(item);save();closeModal();render()}
+  if(f.id==="settingsFormV3"){state.settings.travelerName=d.travelerName.trim()||"Me";state.settings.homeCountry=d.homeCountry.trim();state.settings.homeCurrency=d.homeCurrency;state.settings.defaultTripCurrency=d.defaultTripCurrency;state.settings.dateFormat=d.dateFormat;state.settings.timeFormat=d.timeFormat;state.settings.mapApp=d.mapApp;state.settings.theme=d.theme;save();applyAppearanceV3();render();notify("Preferences saved")}
+  if(f.id==="tripFormV3"){const n=ensureTripV3({id:uuid(),title:d.title.trim(),destination:d.destination.trim(),cityLabel:d.destination.toUpperCase(),countryEmoji:d.countryEmoji||"✈️",startDate:d.startDate,endDate:d.endDate,baseCurrency:d.baseCurrency,homeCurrency:state.settings.homeCurrency,totalBudget:0,dailyBudget:0,categoryBudgets:{},coverKey:"",theme:"inherit",accentColor:"",travelers:[{id:uuid(),name:state.settings.travelerName||"Me",role:"Owner",emoji:"🙂"}],itinerary:[],places:[],bookings:[],packing:[],preTrip:[],expenses:[],memories:[],inbox:[]});state.trips.push(n);state.currentTripId=n.id;state.currentView="home";save();closeModal();render();notify("New trip created 🍓")}
+});
+
+
+/* Build 3 owns reminder behavior; disable the older one-shot notifier. */
+function checkTaskRemindersV2() {}
+
+function beforeHTML() {
+  const t=trip(), sorted=[...t.preTrip].sort((a,b)=>Number(a.done)-Number(b.done)||(a.dueDate||"9999").localeCompare(b.dueDate||"9999")||taskPriorityWeight(a.priority)-taskPriorityWeight(b.priority));
+  const due=dueTasks(t);
+  return `<div class="section-title"><h3>✅ Before You Go</h3><button data-action="quick-add-type" data-type="task">＋ Task</button></div>
+  <div class="btn-row" style="margin-bottom:9px"><button class="btn soft" data-action="pretrip-template-v2">Add starter checklist</button><button class="btn" data-action="enable-notifications-v3">🔔 Reminders</button></div>
+  ${due.length?`<div class="notice-card danger budget-warning"><span class="notice-icon">⏰</span><span><strong>${due.length} task${due.length===1?"":"s"} due or overdue</strong><p>Build 3 can also remind you while Ichigo is open when notifications are enabled.</p></span></div>`:""}
+  <div class="card" style="padding:13px 15px">${sorted.length?sorted.map(i=>`<label class="check-row ${i.done?"done":""}"><input type="checkbox" ${i.done?"checked":""} data-action="toggle-pretrip" data-id="${i.id}"><span><span class="check-name">${esc(i.name)}</span><small style="display:block;color:var(--muted);margin-top:2px">${esc(i.category)} · <span class="priority-${String(i.priority).toLowerCase()}">${esc(i.priority)}</span></small><small class="task-due ${!i.done&&i.dueDate&&i.dueDate<=isoToday()?"task-overdue":""}">${i.dueDate?`Due ${nice(i.dueDate)}`:"No due date"}${i.detail?` · ${esc(i.detail)}`:""}</small></span><button class="tiny-btn" type="button" data-action="edit-task-v2" data-id="${i.id}">Edit</button><button class="tiny-btn danger" type="button" data-action="delete-v2" data-collection="preTrip" data-id="${i.id}">✕</button></label>`).join(""):empty("✅","Nothing here yet","Add a starter checklist or create your own task.","task")}</div>`;
+}
+
+/* Build 3 startup */
+migrateAllTripsV3(true);
 applyLaunchShortcut();
+applyAppearanceV3();
 save();
 render();
+setupServiceWorkerUpdatesV3();

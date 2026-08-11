@@ -1,5 +1,5 @@
-/* Ichigo Build 2 — Offline App Shell */
-const CACHE_NAME = "ichigo-build2-v5-data-folder";
+/* Ichigo Build 3 — Offline App Shell */
+const CACHE_NAME = "ichigo-build3-v1";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -8,22 +8,21 @@ const APP_SHELL = [
   "./data/data.js",
   "./data/db.js",
   "./manifest.json",
-  "./manifest.json?v=20260811-iconfix1",
+  "./manifest.json?v=20260811-build3",
   "./icons/icon-192.png",
-  "./icons/icon-192.png?v=20260811-iconfix1",
+  "./icons/icon-192.png?v=20260811-build3",
   "./icons/icon-512.png",
-  "./icons/icon-512.png?v=20260811-iconfix1",
+  "./icons/icon-512.png?v=20260811-build3",
   "./icons/icon-maskable-512.png",
-  "./icons/icon-maskable-512.png?v=20260811-iconfix1",
+  "./icons/icon-maskable-512.png?v=20260811-build3",
   "./icons/apple-touch-icon.png",
-  "./icons/apple-touch-icon.png?v=20260811-iconfix1"
+  "./icons/apple-touch-icon.png?v=20260811-build3"
 ];
 
 self.addEventListener("install", event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
   );
 });
 
@@ -35,6 +34,10 @@ self.addEventListener("activate", event => {
             .map(key => caches.delete(key))
       ))
       .then(() => self.clients.claim())
+      .then(async () => {
+        const clients = await self.clients.matchAll({ type: "window" });
+        clients.forEach(client => client.postMessage({ type: "ICHIGO_SW_ACTIVATED", cache: CACHE_NAME }));
+      })
   );
 });
 
