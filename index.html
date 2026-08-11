@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#ff6f91">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Ichigo">
+  <meta name="description" content="Ichigo — Plan sweet little adventures.">
+  <title>Ichigo 🍓</title>
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="appShell" class="app-shell">
+    <header class="topbar">
+      <button class="brand" data-action="go-home" aria-label="Go to Ichigo home">
+        <span class="brand-berry">🍓</span>
+        <span><strong>ichigo</strong><small>Plan sweet little adventures.</small></span>
+      </button>
+      <div class="top-actions">
+        <button class="icon-btn" id="installBtn" hidden title="Install Ichigo">⬇️</button>
+        <button class="icon-btn" data-action="toggle-online-info" title="Connection status"><span id="onlineDot" class="online-dot"></span></button>
+      </div>
+    </header>
+
+    <main id="mainView" class="main-view" aria-live="polite"></main>
+
+    <nav class="bottom-nav" aria-label="Main navigation">
+      <button class="nav-item active" data-nav="home"><span>⌂</span><small>Home</small></button>
+      <button class="nav-item" data-nav="plan"><span>▣</span><small>Plan</small></button>
+      <button class="nav-item today-nav" data-nav="today"><span class="berry-orb">🍓</span><small>Today</small></button>
+      <button class="nav-item" data-nav="spend"><span>◉</span><small>Spend</small></button>
+      <button class="nav-item" data-nav="together"><span>♧</span><small>Together</small></button>
+      <button class="nav-item" data-nav="trip"><span>▤</span><small>Trip</small></button>
+    </nav>
+
+    <button id="fab" class="fab" data-action="open-quick-add" aria-label="Quick add">＋</button>
+  </div>
+
+  <div id="modalRoot"></div>
+  <div id="toastRoot" class="toast-root"></div>
+
+  <template id="modalTemplate">
+    <div class="modal-backdrop" data-action="close-modal">
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-handle"></div>
+        <div class="modal-head">
+          <div><p class="eyebrow">ICHIGO</p><h2 id="modalTitle">Modal</h2></div>
+          <button class="icon-btn" data-action="close-modal" aria-label="Close">✕</button>
+        </div>
+        <div id="modalBody" class="modal-body"></div>
+      </section>
+    </div>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

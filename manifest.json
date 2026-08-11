@@ -1,0 +1,52 @@
+{
+  "name": "Ichigo — Trip Planner",
+  "short_name": "Ichigo",
+  "description": "Plan sweet little adventures. Offline-first itinerary, places, budgets, bookings, packing, shared expenses and memories.",
+  "id": "./",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#fff9f7",
+  "theme_color": "#ff6f91",
+  "categories": [
+    "travel",
+    "lifestyle",
+    "productivity"
+  ],
+  "lang": "en",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Today",
+      "short_name": "Today",
+      "description": "Open Ichigo for today's trip",
+      "url": "./index.html#today"
+    },
+    {
+      "name": "Add Expense",
+      "short_name": "Expense",
+      "description": "Open Ichigo and add an expense",
+      "url": "./index.html#expense"
+    }
+  ]
+}
