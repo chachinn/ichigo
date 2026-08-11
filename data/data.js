@@ -203,3 +203,40 @@ Object.assign(window.ICHIGO_DATA, {
     "The funniest thing that happened"
   ]
 });
+
+
+/* Ichigo Builds 5–7: smart planning, story and release-readiness data. */
+Object.assign(window.ICHIGO_DATA, {
+  appVersion: "7.0.0-personal",
+  schemaVersion: 7,
+
+  planningPacesV7: [
+    { id:"relaxed", label:"🌿 Relaxed — more breathing room", buffer:20 },
+    { id:"comfortable", label:"🌸 Comfortable — balanced", buffer:12 },
+    { id:"busy", label:"🍓 Busy — fit more in", buffer:6 }
+  ],
+
+  dashboardWidgetsV7: [
+    { id:"mustgo", icon:"❤️", label:"Must-Go waiting", description:"Saved Must-Go places still missing from the itinerary." },
+    { id:"intensity", icon:"🌸", label:"Day intensity", description:"Relaxed, Comfortable, Busy or Packed for the active day." },
+    { id:"daybudget", icon:"💴", label:"Day budget", description:"How much of the active day's budget remains." },
+    { id:"scratchpad", icon:"⚡", label:"Scratchpad", description:"Count of quick travel notes waiting for you." },
+    { id:"recent", icon:"🕘", label:"Recently changed", description:"The latest meaningful edit to the current trip." },
+    { id:"storage", icon:"💾", label:"Local media", description:"Approximate size of locally stored Ichigo attachments." }
+  ],
+
+  journalPromptsV7: [
+    "Best thing I ate today",
+    "Favorite little moment",
+    "Something unexpected",
+    "A place I would happily return to",
+    "What made me laugh today?",
+    "Something I noticed that I would have missed at home",
+    "Best view of the day",
+    "A tiny kindness I received or saw",
+    "What did today sound or smell like?",
+    "One thing I want to remember five years from now",
+    "The most 'this trip' moment today",
+    "Something that did not go to plan — and what happened instead"
+  ]
+});

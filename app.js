@@ -2672,8 +2672,1261 @@ document.addEventListener("submit",async event=>{
   }
 });
 
-/* ---------- Build 4 startup ---------- */
-migrateAllTripsV4(true);
+/* Build 5–7 consolidated startup runs below. */
+
+
+
+/* =====================================================================
+   ICHIGO BUILDS 5 + 6 + 7 — PERSONAL SMART TRAVEL EDITION
+   No Supabase. No login. No cloud database.
+
+   BUILD 5 — Smart Personal Planning
+   - Plan My Day
+   - local route ordering + distance warnings
+   - unscheduled / Must-Go tray
+   - day intensity, day budgets, expected costs
+   - flexible dayparts, push-later actions
+   - scratchpad, Trip Notes, richer Inbox conversion
+   - dashboard extras, favorites, undo, autosave, recent changes
+
+   BUILD 6 — Memories & Scrapbook
+   - daily travel timeline
+   - food diary
+   - highlights / favorites
+   - visited story map
+   - journal prompts + memory types
+   - richer automatic scrapbook and trip recap
+
+   BUILD 7 — Personal Release Readiness
+   - stronger runtime/offline status
+   - storage manager + orphan cleanup
+   - storage safeguards
+   - safe render recovery + error log
+   - release self-test
+   - migration to schema 7
+   - improved PWA update/offline controls
+   ===================================================================== */
+
+const APP_VERSION_V7 = "7.0.0-personal";
+const APP_SCHEMA_VERSION_V7 = 7;
+const CACHE_VERSION_V7 = "ichigo-build7-app-v1";
+const ERROR_LOG_V7 = "ichigo-error-log-v7";
+
+const DEFAULT_DASHBOARD_WIDGETS_V7 = [
+  "mustgo", "intensity", "daybudget", "scratchpad", "recent"
+];
+
+let undoStackV7 = [];
+let saveStatusTimerV7 = null;
+let storyMapV7 = null;
+let storageWarningShownV7 = false;
+
+/* ---------- State + migrations ---------- */
+function ensureStateV7() {
+  ensureStateV4();
+  state.settings.dashboardWidgets ||= clone(DEFAULT_DASHBOARD_WIDGETS_V7);
+  state.settings.offlinePreparedAt ||= "";
+  state.settings.releaseMode ??= true;
+  state.storyDate ||= "";
+  state.memoryFilter ||= "all";
+  state.planMyDay ||= { pace:"comfortable", startTime:"09:00" };
+  state.onboarding ||= {};
+  state.onboarding.build7Seen ??= false;
+  return state;
+}
+
+function normalizeQuickNoteV7(note) {
+  if (typeof note === "string") return {id:uuid(),text:note,pinned:false,createdAt:Date.now()};
+  return {
+    id: note?.id || uuid(),
+    text: note?.text || note?.note || "",
+    pinned: !!note?.pinned,
+    createdAt: Number(note?.createdAt || Date.now())
+  };
+}
+
+function ensureTripV7(t) {
+  t = ensureTripV4(t);
+  if (!t) return t;
+
+  t.dayBudgets ||= {};
+  t.tripNotes ||= "";
+  t.quickNotes = (t.quickNotes || []).map(normalizeQuickNoteV7);
+  t.recentChanges ||= [];
+  t.recentChanges = t.recentChanges.slice(0, 30);
+
+  (t.places ||= []).forEach(p => {
+    p.estimatedDuration = Number(p.estimatedDuration || 90);
+    p.estimatedCost = Number(p.estimatedCost || 0);
+    p.favorite ??= false;
+  });
+
+  (t.itinerary ||= []).forEach(a => {
+    a.daypart ||= a.flexible ? "Anytime" : "Fixed";
+    a.estimatedCost = Number(a.estimatedCost || 0);
+    a.sourcePlaceId ||= "";
+    a.favorite ??= false;
+  });
+
+  (t.memories ||= []).forEach(m => {
+    m.memoryType ||= "Moment";
+    m.prompt ||= "";
+    m.favorite ??= !!m.highlight;
+    m.highlight = !!m.favorite;
+  });
+
+  return t;
+}
+
+function migrateAllTripsV7(persist=false) {
+  ensureStateV7();
+  const before = Number(state.schemaVersion || 1);
+  state.trips = (state.trips || []).map(ensureTripV7);
+  state.migrations ||= [];
+
+  [
+    [5,"Smart personal planning, day budgets, favorites and scratchpad"],
+    [6,"Travel timeline, food diary, highlights and scrapbook"],
+    [7,"Offline/storage safeguards, recovery and release readiness"]
+  ].forEach(([version,note]) => {
+    if (before < version && !state.migrations.some(x => x.version === version)) {
+      state.migrations.push({version,at:Date.now(),note});
+    }
+  });
+
+  state.schemaVersion = APP_SCHEMA_VERSION_V7;
+  state.appVersion = APP_VERSION_V7;
+  if (persist) save();
+}
+
+/* Override trip() and save() for the final personal schema. */
+trip = function tripV7() {
+  ensureStateV7();
+  return ensureTripV7(state.trips.find(x => x.id === state.currentTripId) || state.trips[0]);
+};
+
+function ensureStatusUIV7() {
+  if (document.querySelector("#appStatusHostV7")) return;
+  const updateHost = document.querySelector("#appUpdateHost");
+  if (!updateHost) return;
+  const host = document.createElement("div");
+  host.id = "appStatusHostV7";
+  host.className = "app-status-v7";
+  host.setAttribute("aria-live","polite");
+  host.innerHTML = `<span id="saveStatusV7">Saved ✓</span><span class="status-sep-v7">·</span><button data-action="open-offline-v7" id="offlineStatusV7">${navigator.onLine?"Online":"Offline"}</button><span class="status-sep-v7">·</span><button data-action="undo-v7" id="undoStatusV7" hidden>Undo</button>`;
+  updateHost.insertAdjacentElement("afterend",host);
+}
+
+function setSaveStatusV7(text,kind="") {
+  ensureStatusUIV7();
+  const el=document.querySelector("#saveStatusV7");
+  if(!el)return;
+  el.textContent=text;
+  el.dataset.kind=kind;
+}
+
+save = function saveV7() {
+  ensureStateV7();
+  state.schemaVersion = APP_SCHEMA_VERSION_V7;
+  state.appVersion = APP_VERSION_V7;
+  state.updatedAt = Date.now();
+  setSaveStatusV7("Saving…","saving");
+
+  try {
+    const raw = JSON.stringify(state);
+    localStorage.setItem(STORE, raw);
+
+    if (raw.length > 4_000_000 && !storageWarningShownV7) {
+      storageWarningShownV7 = true;
+      setTimeout(()=>notify("Ichigo's structured data is getting large. Consider exporting a backup and keeping photos in the Storage Manager."),300);
+    }
+
+    clearTimeout(saveStatusTimerV7);
+    saveStatusTimerV7=setTimeout(()=>setSaveStatusV7("Saved ✓","saved"),240);
+  } catch (error) {
+    logErrorV7(error,"save");
+    setSaveStatusV7("Save failed","error");
+    setTimeout(()=>notify("Ichigo couldn't save this change. Export a backup before making more edits."),50);
+  }
+};
+
+/* ---------- Error recovery ---------- */
+function logErrorV7(error,where="runtime") {
+  try {
+    const rows=JSON.parse(sessionStorage.getItem(ERROR_LOG_V7)||"[]");
+    rows.unshift({
+      at:new Date().toISOString(),
+      where,
+      message:String(error?.message||error||"Unknown error"),
+      stack:String(error?.stack||"").slice(0,1200)
+    });
+    sessionStorage.setItem(ERROR_LOG_V7,JSON.stringify(rows.slice(0,12)));
+  } catch {}
+}
+
+window.addEventListener("error",e=>logErrorV7(e.error||e.message,"window.error"));
+window.addEventListener("unhandledrejection",e=>logErrorV7(e.reason,"unhandledrejection"));
+
+function recoveryHTMLV7(error) {
+  return `<section class="recovery-v7">
+    <div class="recovery-berry-v7">🍓</div>
+    <p class="eyebrow">ICHIGO RECOVERY</p>
+    <h1>Something in this screen got tangled.</h1>
+    <p>Your local trip data has not been deliberately reset. You can go Home, export a full backup, or run the release check.</p>
+    <div class="btn-row wrap-v3">
+      <button class="btn primary" data-action="recovery-home-v7">Go Home</button>
+      <button class="btn soft" data-action="export-full-backup-v3">Export backup</button>
+      <button class="btn" data-action="open-release-v7">Release check</button>
+    </div>
+    <details><summary>Technical detail</summary><pre>${esc(String(error?.message||error||"Unknown render error"))}</pre></details>
+  </section>`;
+}
+
+/* Final render wrapper. */
+render = function renderV7() {
+  try {
+    ensureStateV7();
+    state.trips = (state.trips || []).map(ensureTripV7);
+    applyAppearanceV3();
+
+    document.querySelectorAll(".nav-item").forEach(x=>{
+      const active=x.dataset.nav===state.currentView;
+      x.classList.toggle("active",active);
+      if(active)x.setAttribute("aria-current","page");else x.removeAttribute("aria-current");
+    });
+
+    const fn=({home:renderHome,plan:renderPlan,today:renderToday,spend:renderSpend,together:renderTogether,trip:renderTrip}[state.currentView]||renderHome);
+    fn();
+    updateOnline();
+    afterRenderV2();
+    afterRenderV3();
+    afterRenderV7();
+  } catch (error) {
+    console.error("Ichigo render recovery",error);
+    logErrorV7(error,"render");
+    main.innerHTML=recoveryHTMLV7(error);
+    updateOnline();
+    ensureStatusUIV7();
+  }
+};
+
+function afterRenderV7() {
+  ensureStatusUIV7();
+  const offline=document.querySelector("#offlineStatusV7");
+  if(offline)offline.textContent=navigator.onLine?"Online":"Offline";
+  initStoryMapV7();
+  if(document.querySelector("#storageManagerBodyV7"))renderStorageManagerV7();
+  if(document.querySelector("#releaseCheckBodyV7"))runReleaseSelfTestV7(false);
+  updateDashboardStorageV7();
+}
+
+/* ---------- Undo + recent changes ---------- */
+function pushUndoV7(label) {
+  const t=trip();
+  undoStackV7.push({label,tripId:t.id,trip:clone(t),at:Date.now()});
+  undoStackV7=undoStackV7.slice(-8);
+  ensureStatusUIV7();
+  const btn=document.querySelector("#undoStatusV7");
+  if(btn){btn.hidden=false;btn.textContent=`Undo ${label}`;}
+}
+
+function undoV7() {
+  const snap=undoStackV7.pop();
+  if(!snap){notify("Nothing to undo.");return}
+  const idx=state.trips.findIndex(x=>x.id===snap.tripId);
+  if(idx<0){notify("That trip is no longer available.");return}
+  state.trips[idx]=ensureTripV7(snap.trip);
+  state.currentTripId=snap.tripId;
+  save();render();notify(`Undid ${snap.label}`);
+  const btn=document.querySelector("#undoStatusV7");
+  if(btn){btn.hidden=!undoStackV7.length;btn.textContent=undoStackV7.length?`Undo ${undoStackV7.at(-1).label}`:"Undo";}
+}
+
+function markChangedV7(label,kind="",id="") {
+  const t=trip();
+  t.recentChanges ||= [];
+  t.recentChanges.unshift({id:uuid(),label,kind,itemId:id,at:Date.now()});
+  t.recentChanges=t.recentChanges.slice(0,20);
+  save();
+}
+
+const undoableActionsV7=new Map([
+  ["move-activity-step-v3","itinerary move"],
+  ["skip-activity-v4","activity status"],
+  ["delay-activity-v4","activity delay"],
+  ["reset-delay-v4","activity delay"],
+  ["duplicate-day-v3","day duplication"]
+]);
+
+document.addEventListener("click",event=>{
+  const el=event.target.closest("[data-action]");
+  if(!el)return;
+  const label=undoableActionsV7.get(el.dataset.action);
+  if(label)pushUndoV7(label);
+},true);
+
+/* ---------- Smart planning math ---------- */
+function haversineKmV7(a,b) {
+  if(!a?.lat||!a?.lng||!b?.lat||!b?.lng)return null;
+  const R=6371,rad=x=>Number(x)*Math.PI/180;
+  const dLat=rad(b.lat-a.lat),dLon=rad(b.lng-a.lng);
+  const la1=rad(a.lat),la2=rad(b.lat);
+  const h=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+
+function roughTravelMinutesV7(a,b,pace="comfortable") {
+  const km=haversineKmV7(a,b);
+  if(km==null)return Number(b?.travelTime||0);
+  const buffer=pace==="relaxed"?14:pace==="busy"?6:10;
+  return Math.max(5,Math.round(km*3+buffer));
+}
+
+function priorityWeightV7(p) {
+  return p.priority==="Must go"?0:p.favorite?1:p.priority==="Want"?2:3;
+}
+
+function nearestOrderV7(items) {
+  const left=[...items];
+  if(left.length<2)return left;
+  left.sort((a,b)=>priorityWeightV7(a)-priorityWeightV7(b));
+  const ordered=[left.shift()];
+  while(left.length){
+    const cur=ordered.at(-1);
+    left.sort((a,b)=>{
+      const da=haversineKmV7(cur,a),db=haversineKmV7(cur,b);
+      if(da==null&&db==null)return priorityWeightV7(a)-priorityWeightV7(b);
+      if(da==null)return 1;if(db==null)return -1;
+      return da-db || priorityWeightV7(a)-priorityWeightV7(b);
+    });
+    ordered.push(left.shift());
+  }
+  return ordered;
+}
+
+function dayBudgetV7(date,t=trip()) {
+  const own=Number(t.dayBudgets?.[date]||0);
+  return own>0?own:Number(t.dailyBudget||0);
+}
+
+function plannedCostDateV7(date,t=trip()) {
+  return activitiesOn(date,t).reduce((s,x)=>s+Number(x.estimatedCost||0),0);
+}
+
+function dayIntensityV7(date,t=trip()) {
+  const rows=activitiesOn(date,t).filter(x=>!x.skipped);
+  const activeMinutes=rows.reduce((s,x)=>s+Number(x.duration||0)+Number(x.travelTime||0),0);
+  const score=activeMinutes+rows.length*18;
+  if(rows.length<=3&&score<300)return{key:"relaxed",icon:"🌿",label:"Relaxed",score,minutes:activeMinutes};
+  if(rows.length<=6&&score<500)return{key:"comfortable",icon:"🌸",label:"Comfortable",score,minutes:activeMinutes};
+  if(rows.length<=8&&score<680)return{key:"busy",icon:"🍓",label:"Busy",score,minutes:activeMinutes};
+  return{key:"packed",icon:"🔥",label:"Packed",score,minutes:activeMinutes};
+}
+
+function placeScheduledV7(place,t=trip()) {
+  return t.itinerary.some(a=>a.sourcePlaceId===place.id || `${a.title} ${a.place}`.toLowerCase().includes(String(place.name||"").toLowerCase()));
+}
+
+function unscheduledPlacesV7(t=trip()) {
+  return t.places.filter(p=>!p.visited&&!placeScheduledV7(p,t)).sort((a,b)=>priorityWeightV7(a)-priorityWeightV7(b)||a.name.localeCompare(b.name));
+}
+
+function typeFromPlaceV7(p) {
+  const c=String(p.category||"").toLowerCase();
+  if(/cafe|café/.test(c))return"cafe";
+  if(/food|restaurant/.test(c))return"food";
+  if(/shop|store|mall/.test(c))return"shopping";
+  if(/attraction|temple|museum|park/.test(c))return"attraction";
+  return"place";
+}
+
+function localSmartWarningsV7(date,t=trip()) {
+  const warnings=[];
+  const rows=activitiesOn(date,t).filter(x=>!x.skipped);
+
+  for(let i=1;i<rows.length;i++){
+    const prev=rows[i-1],cur=rows[i];
+    const km=haversineKmV7(prev,cur);
+    if(km!=null && km>=20) warnings.push({
+      severity:km>=40?"high":"medium",icon:"🗺️",
+      title:`${prev.title} → ${cur.title} is a long jump`,
+      detail:`The saved coordinates are about ${km.toFixed(km>=10?0:1)} km apart in a straight line. Check the real route before travel day.`
+    });
+  }
+
+  const fixed=rows.filter(x=>!x.flexible&&x.time);
+  (t.bookings||[]).filter(b=>b.date===date&&b.time&&b.status!=="Cancelled").forEach(b=>{
+    const bs=minutesFromTime(b.time),be=b.endDate===date&&b.endTime?minutesFromTime(b.endTime):bs+60;
+    fixed.forEach(a=>{
+      const as=minutesFromTime(a.time),ae=as+Number(a.duration||60);
+      if(Math.max(as,bs)<Math.min(ae,be) && !String(a.title).toLowerCase().includes(String(b.title).toLowerCase())) {
+        warnings.push({severity:"high",icon:"🎟️",title:`Booking overlaps ${a.title}`,detail:`${b.title} at ${formatTimeV3(b.time)} overlaps this itinerary block.`});
+      }
+    });
+  });
+
+  const sourceIds=rows.map(x=>x.sourcePlaceId).filter(Boolean);
+  [...new Set(sourceIds)].forEach(id=>{
+    if(sourceIds.filter(x=>x===id).length>1){
+      const p=t.places.find(x=>x.id===id);
+      warnings.push({severity:"low",icon:"↻",title:`${p?.name||"A saved place"} appears more than once`,detail:"Review the day in case this duplicate was accidental."});
+    }
+  });
+
+  const budget=dayBudgetV7(date,t),planned=plannedCostDateV7(date,t),actual=spentDate(date,t);
+  if(budget>0&&planned>budget)warnings.push({severity:"medium",icon:"💴",title:"Planned cost is above this day's budget",detail:`Expected ${money(planned)} vs ${money(budget)} day budget.`});
+  if(budget>0&&actual>budget)warnings.push({severity:"high",icon:"💸",title:"Today's spending is above the day budget",detail:`Actual spending is ${money(actual)} vs ${money(budget)}.`});
+
+  return warnings;
+}
+
+/* Upgrade the Build 4 warning engine everywhere it is already used. */
+const scheduleWarningsBeforeV7 = scheduleWarningsV4;
+scheduleWarningsV4 = function scheduleWarningsSmartV7(date,t=trip()) {
+  const base=typeof scheduleWarningsBeforeV7==="function"?scheduleWarningsBeforeV7(date,t):[];
+  const all=[...base,...localSmartWarningsV7(date,t)];
+  const seen=new Set();
+  return all.filter(x=>{
+    const k=`${x.title}|${x.detail}`;
+    if(seen.has(k))return false;
+    seen.add(k);return true;
+  });
+};
+
+/* ---------- Forms upgraded for planning + memories ---------- */
+activityFormHTMLV2 = function activityFormHTMLV7(item={}) {
+  const t=trip(),mode=item.daypart||(item.flexible?"Anytime":"Fixed");
+  return `<form id="activityFormV7" data-edit-id="${item.id||""}" class="form-grid">
+    <div class="form-row"><label>DATE</label><input name="date" type="date" value="${item.date||state.activeItineraryDate||activeDate(t)}" required></div>
+    <div class="form-row two"><div><label>SCHEDULE</label><select name="daypart">${["Fixed","Morning","Afternoon","Evening","Anytime"].map(x=>`<option ${mode===x?"selected":""}>${x}</option>`).join("")}</select></div><div><label>TIME</label><input name="time" type="time" value="${item.time||""}"></div></div>
+    <div class="form-row two"><div><label>DURATION (MIN)</label><input name="duration" type="number" min="0" step="5" value="${item.duration||60}"></div><div><label>TRAVEL BEFORE (MIN)</label><input name="travelTime" type="number" min="0" step="5" value="${item.travelTime||0}"></div></div>
+    <div class="form-row two"><div><label>EXPECTED COST (${t.baseCurrency})</label><input name="estimatedCost" type="number" min="0" step=".01" value="${Number(item.estimatedCost||0)}"></div><div><label>TYPE</label><select name="type">${[["place","Place"],["cafe","Café"],["food","Food"],["transport","Transport"],["attraction","Attraction"],["shopping","Shopping"]].map(([v,l])=>`<option value="${v}" ${item.type===v?"selected":""}>${l}</option>`).join("")}</select></div></div>
+    <label class="check-inline-v3"><input name="favorite" type="checkbox" ${item.favorite?"checked":""}> ⭐ Favorite / highlight this activity</label>
+    <input name="sourcePlaceId" type="hidden" value="${esc(item.sourcePlaceId||"")}">
+    <div class="form-row"><label>ACTIVITY</label><input name="title" required value="${esc(item.title||"")}" placeholder="Hasedera Temple"></div>
+    <div class="form-row"><label>PLACE / AREA</label><input name="place" value="${esc(item.place||"")}" placeholder="Kamakura"></div>
+    <div class="form-row"><label>ADDRESS</label><input name="address" value="${esc(item.address||"")}" placeholder="Optional"></div>
+    <div class="form-row two"><div><label>LATITUDE</label><input name="lat" type="number" step="any" value="${item.lat??""}"></div><div><label>LONGITUDE</label><input name="lng" type="number" step="any" value="${item.lng??""}"></div></div>
+    <div class="form-row"><label>NOTES</label><textarea name="notes">${esc(item.notes||"")}</textarea></div>
+    <button class="btn primary">${item.id?"Save activity":"Add to itinerary"}</button>
+  </form>`;
+};
+
+placeFormHTMLV2 = function placeFormHTMLV7(item={}) {
+  return `<form id="placeFormV7" data-edit-id="${item.id||""}" class="form-grid">
+    <div class="form-row"><label>PLACE NAME</label><input name="name" required value="${esc(item.name||"")}" placeholder="Pokémon Café"></div>
+    <div class="form-row two"><div><label>AREA</label><input name="area" value="${esc(item.area||"")}" placeholder="Nihonbashi"></div><div><label>CATEGORY</label><select name="category">${placeCategoryOptions(item.category||"Café")}</select></div></div>
+    <div class="form-row two"><div><label>PRIORITY</label><select name="priority">${["Must go","Want","Maybe"].map(x=>`<option ${item.priority===x?"selected":""}>${x}</option>`).join("")}</select></div><div><label>OPENING HOURS</label><input name="openingHours" value="${esc(item.openingHours||"")}" placeholder="10:00–20:00"></div></div>
+    <div class="form-row two"><div><label>EXPECTED VISIT (MIN)</label><input name="estimatedDuration" type="number" min="15" step="15" value="${Number(item.estimatedDuration||90)}"></div><div><label>EXPECTED SPEND</label><input name="estimatedCost" type="number" min="0" step=".01" value="${Number(item.estimatedCost||0)}"></div></div>
+    <label class="check-inline-v3"><input name="favorite" type="checkbox" ${item.favorite?"checked":""}> ⭐ Favorite</label>
+    <div class="form-row"><label>ADDRESS</label><input name="address" value="${esc(item.address||"")}"></div>
+    <div class="form-row two"><div><label>LATITUDE</label><input name="lat" type="number" step="any" value="${item.lat??""}"></div><div><label>LONGITUDE</label><input name="lng" type="number" step="any" value="${item.lng??""}"></div></div>
+    <button class="btn soft" type="button" data-action="fill-current-location-v2" data-target-form="placeFormV7">◎ Use my current coordinates</button>
+    <div class="form-row"><label>MAP LINK</label><input name="mapUrl" type="url" value="${esc(item.mapUrl||"")}" placeholder="Optional Google/Apple Maps link"></div>
+    <div class="form-row"><label>RESERVATION LINK</label><input name="reservationUrl" type="url" value="${esc(item.reservationUrl||"")}" placeholder="Optional reservation link"></div>
+    <div class="form-row"><label>TAGS</label><input name="tags" value="${esc((item.tags||[]).join(", "))}" placeholder="ramen, rainy day, shinjuku"></div>
+    <div class="form-row"><label>NOTES</label><textarea name="notes">${esc(item.notes||"")}</textarea></div>
+    <button class="btn primary">${item.id?"Save place":"Save place"}</button>
+  </form>`;
+};
+
+function randomJournalPromptV7() {
+  const arr=window.ICHIGO_DATA?.journalPromptsV7||window.ICHIGO_DATA?.journalPrompts||[];
+  return arr[Math.floor(Math.random()*Math.max(1,arr.length))]||"Favorite little moment";
+}
+
+memoryFormHTMLV2 = function memoryFormHTMLV7(item={}) {
+  const t=trip(),prompts=window.ICHIGO_DATA?.journalPromptsV7||window.ICHIGO_DATA?.journalPrompts||[];
+  return `<form id="memoryFormV7" data-edit-id="${item.id||""}" class="form-grid">
+    <div class="form-row two"><div><label>DATE</label><input name="date" type="date" value="${item.date||activeDate(t)}" required></div><div><label>TIME</label><input name="time" type="time" value="${item.time||""}"></div></div>
+    <div class="form-row two"><div><label>TYPE</label><select name="memoryType">${["Moment","Food","Place","Shopping","Stay","Transit"].map(x=>`<option ${item.memoryType===x?"selected":""}>${x}</option>`).join("")}</select></div><div><label>PROMPT</label><select name="prompt"><option value="">No prompt</option>${prompts.map(x=>`<option value="${esc(x)}" ${item.prompt===x?"selected":""}>${esc(x)}</option>`).join("")}</select></div></div>
+    <label class="check-inline-v3"><input name="favorite" type="checkbox" ${item.favorite?"checked":""}> ⭐ Favorite moment</label>
+    <div class="form-row"><label>TITLE</label><input name="title" value="${esc(item.title||"")}" placeholder="Enoshima sunset"></div>
+    <div class="form-row"><label>JOURNAL NOTE</label><textarea name="note" placeholder="A tiny memory from today...">${esc(item.note||"")}</textarea></div>
+    <div class="form-row"><label>LOCATION / PLACE</label><input name="location" value="${esc(item.location||"")}" placeholder="Enoshima, Kanagawa"></div>
+    <div class="form-row two"><div><label>LATITUDE</label><input name="lat" type="number" step="any" value="${item.lat??""}"></div><div><label>LONGITUDE</label><input name="lng" type="number" step="any" value="${item.lng??""}"></div></div>
+    <button class="btn soft" type="button" data-action="fill-current-location-v2" data-target-form="memoryFormV7">◎ Use current location</button>
+    <div class="form-row"><label>PHOTO</label><input name="photo" type="file" accept="image/*"><small class="inline-help">Stored locally. Leave blank while editing to keep the current photo.</small></div>
+    <button class="btn primary">${item.id?"Save memory":"Save memory"}</button>
+  </form>`;
+};
+
+/* ---------- Smart planner UI ---------- */
+function planMyDayModalV7(date=state.activeItineraryDate||activeDate()) {
+  const places=unscheduledPlacesV7();
+  if(!places.length){notify("All your unvisited saved places are already scheduled.");return}
+  const pref=state.planMyDay||{};
+  openModal("🍓 Plan My Day",`<form id="planMyDayFormV7" class="form-grid">
+    <div class="notice-card"><span class="notice-icon">🍓</span><span><strong>Local smart planning</strong><p>Ichigo uses your saved coordinates, priorities, expected visit lengths and a rough straight-line travel estimate. Always verify real transit times.</p></span></div>
+    <div class="form-row two"><div><label>DAY</label><select name="date">${allDates().map(d=>`<option value="${d}" ${d===date?"selected":""}>Day ${dayNo(d)} · ${nice(d)}</option>`).join("")}</select></div><div><label>START</label><input name="startTime" type="time" value="${pref.startTime||"09:00"}"></div></div>
+    <div class="form-row"><label>PACE</label><select name="pace">${(window.ICHIGO_DATA?.planningPacesV7||[]).map(x=>`<option value="${x.id}" ${x.id===(pref.pace||"comfortable")?"selected":""}>${esc(x.label)}</option>`).join("")}</select></div>
+    <label class="check-inline-v3"><input name="replaceDay" type="checkbox"> Replace activities already on this day</label>
+    <div class="planner-select-list-v7">${places.map(p=>`<label class="planner-place-option-v7"><input type="checkbox" name="placeIds" value="${p.id}" ${p.priority==="Must go"||p.favorite?"checked":""}><span>${p.priority==="Must go"?"❤️":p.favorite?"⭐":"📍"}</span><span><strong>${esc(p.name)}</strong><small>${esc(p.area||p.category)} · ~${formatDuration(p.estimatedDuration)}${p.estimatedCost?` · ${money(p.estimatedCost)}`:""}</small></span></label>`).join("")}</div>
+    <button class="btn primary">Build this day</button>
+  </form>`);
+}
+
+function buildDayFromPlacesV7({date,startTime,pace,replaceDay,placeIds}) {
+  const t=trip(),selected=placeIds.map(id=>t.places.find(p=>p.id===id)).filter(Boolean);
+  if(!selected.length){notify("Choose at least one saved place.");return false}
+  pushUndoV7("Plan My Day");
+
+  if(replaceDay)t.itinerary=t.itinerary.filter(a=>a.date!==date);
+  const ordered=nearestOrderV7(selected);
+  const profile=(window.ICHIGO_DATA?.planningPacesV7||[]).find(x=>x.id===pace)||{buffer:10};
+  let cursor=minutesFromTime(startTime)||540;
+  const startOrder=activitiesOn(date,t).length;
+
+  ordered.forEach((p,index)=>{
+    const prev=index?ordered[index-1]:null;
+    const travel=prev?roughTravelMinutesV7(prev,p,pace):0;
+    cursor+=travel;
+    const duration=Math.max(15,Number(p.estimatedDuration||90));
+    t.itinerary.push({
+      id:uuid(),date,time:timeFromMinutes(cursor),daypart:"Fixed",
+      duration,travelTime:travel,type:typeFromPlaceV7(p),title:p.name,place:p.area||p.name,
+      address:p.address||"",notes:p.notes||"",flexible:false,lat:p.lat,lng:p.lng,
+      sourcePlaceId:p.id,estimatedCost:Number(p.estimatedCost||0),favorite:!!p.favorite,
+      order:startOrder+index,completed:false,skipped:false,completedAt:"",arrivedAt:""
+    });
+    cursor+=duration+Number(profile.buffer||0);
+  });
+
+  renumberDay(date,t);
+  state.activeItineraryDate=date;
+  state.planMyDay={pace,startTime};
+  markChangedV7(`Planned Day ${dayNo(date,t)} with ${ordered.length} saved place${ordered.length===1?"":"s"}`,"itinerary");
+  return true;
+}
+
+function smartPlannerHTMLV7() {
+  const t=trip(),date=state.activeItineraryDate||activeDate(t),unscheduled=unscheduledPlacesV7(t),must=unscheduled.filter(p=>p.priority==="Must go");
+  const mapped=t.itinerary.filter(a=>a.lat&&a.lng).length;
+  return `<div class="planner-hero-v7">
+    <div><p class="eyebrow">SMART PERSONAL PLANNER</p><h2>Build a sweeter day 🍓</h2><p>Uses only the information saved in Ichigo. No AI API, account or paid service required.</p></div>
+    <button class="btn primary" data-action="open-plan-day-v7" data-date="${date}">🍓 Plan My Day</button>
+  </div>
+  <div class="planner-summary-grid-v7">
+    <div class="card"><span>❤️</span><strong>${must.length}</strong><small>Must-Go unscheduled</small></div>
+    <div class="card"><span>📍</span><strong>${unscheduled.length}</strong><small>Places unscheduled</small></div>
+    <div class="card"><span>🗺️</span><strong>${mapped}</strong><small>Mapped activities</small></div>
+    <div class="card"><span>💴</span><strong>${money(plannedCostDateV7(date,t))}</strong><small>Expected Day ${dayNo(date,t)}</small></div>
+  </div>
+  <section class="section"><div class="section-title"><h3>❤️ Must-Go planner</h3><button data-action="open-plan-day-v7" data-date="${date}">Plan</button></div>${must.length?`<div class="smart-place-tray-v7">${must.map(p=>smartPlaceMiniV7(p,date)).join("")}</div>`:empty("❤️","Must-Go list is scheduled","Your current Must-Go places are already represented in the itinerary.")}</section>
+  <section class="section"><div class="section-title"><h3>📍 Unscheduled places</h3><span class="meta">${unscheduled.length}</span></div>${unscheduled.length?`<div class="smart-place-tray-v7">${unscheduled.map(p=>smartPlaceMiniV7(p,date)).join("")}</div>`:empty("🌸","Nothing waiting","All saved unvisited places have an itinerary slot.")}</section>
+  <section class="section"><div class="card smart-how-v7"><h3>How local route ordering works</h3><p>When coordinates exist, Ichigo uses a nearest-next-place order and estimates travel using straight-line distance plus a small buffer. It does <strong>not</strong> know train schedules, traffic, station entrances or actual walking routes, so treat it as a planning helper—not navigation.</p></div></section>`;
+}
+
+function smartPlaceMiniV7(p,date) {
+  return `<article class="smart-place-v7"><div><span class="badge ${p.priority==="Must go"?"gold":"gray"}">${esc(p.priority)}</span><h4>${p.favorite?"⭐ ":""}${esc(p.name)}</h4><p>${esc(p.area||p.category)}${p.openingHours?` · ${esc(p.openingHours)}`:""}</p><small>~${formatDuration(p.estimatedDuration)}${p.estimatedCost?` · ${money(p.estimatedCost)}`:""}${p.lat&&p.lng?" · mapped":""}</small></div><button class="tiny-btn primary" data-action="add-place-day-v7" data-place-id="${p.id}" data-date="${date}">＋ Day ${dayNo(date)}</button></article>`;
+}
+
+function addPlaceToDayV7(placeId,date) {
+  const t=trip(),p=t.places.find(x=>x.id===placeId);if(!p)return;
+  pushUndoV7("add saved place");
+  const items=activitiesOn(date,t),last=items.filter(x=>x.time&&!x.flexible).at(-1);
+  const travel=last?roughTravelMinutesV7(last,p):0;
+  const start=last?minutesFromTime(last.time)+Number(last.duration||60)+travel:600;
+  t.itinerary.push({
+    id:uuid(),date,time:timeFromMinutes(start),daypart:"Fixed",duration:Number(p.estimatedDuration||90),
+    travelTime:travel,type:typeFromPlaceV7(p),title:p.name,place:p.area||p.name,address:p.address||"",
+    notes:p.notes||"",flexible:false,lat:p.lat,lng:p.lng,sourcePlaceId:p.id,
+    estimatedCost:Number(p.estimatedCost||0),favorite:!!p.favorite,order:items.length,
+    completed:false,skipped:false
+  });
+  renumberDay(date,t);state.activeItineraryDate=date;markChangedV7(`Added ${p.name} to Day ${dayNo(date,t)}`,"itinerary");
+  render();
+}
+
+function optimizeRouteV7(date) {
+  const t=trip(),items=activitiesOn(date,t);
+  const mapped=items.filter(x=>x.lat&&x.lng);
+  if(mapped.length<2){notify("Add coordinates to at least two activities first.");return}
+  pushUndoV7("route order");
+
+  const optimized=nearestOrderV7(mapped);
+  const unmapped=items.filter(x=>!x.lat||!x.lng);
+  const combined=[...optimized,...unmapped];
+
+  combined.forEach((x,i)=>{
+    x.order=i;
+    if(i===0)x.travelTime=0;
+    else x.travelTime=roughTravelMinutesV7(combined[i-1],x);
+  });
+  renumberDay(date,t);markChangedV7(`Optimized Day ${dayNo(date,t)} route order`,"itinerary");render();notify("Route order updated. Check real transit before travel.");
+}
+
+function pushLaterModalV7(id) {
+  const item=trip().itinerary.find(x=>x.id===id);if(!item)return;
+  openModal("Push the Day Later",`<form id="pushLaterFormV7" data-id="${id}" class="form-grid">
+    <p class="meta">Moves this activity and every later fixed-time activity on the same day.</p>
+    <div class="form-row"><label>DELAY</label><select name="minutes">${[15,30,60,90,120].map(x=>`<option value="${x}">+${x} minutes</option>`).join("")}</select></div>
+    <button class="btn primary">Push later</button>
+  </form>`);
+}
+
+function applyPushLaterV7(id,minutes) {
+  const t=trip(),item=t.itinerary.find(x=>x.id===id);if(!item)return;
+  pushUndoV7("push day later");
+  const day=activitiesOn(item.date,t),startIndex=day.findIndex(x=>x.id===id);
+  day.slice(Math.max(0,startIndex)).forEach(x=>{
+    if(x.time&&!x.flexible){
+      x.originalTime ||= x.time;
+      x.time=timeFromMinutes(minutesFromTime(x.time)+minutes);
+      x.delayMinutes=Number(x.delayMinutes||0)+minutes;
+    }
+  });
+  markChangedV7(`Pushed Day ${dayNo(item.date,t)} later by ${minutes} minutes`,"itinerary");
+}
+
+/* ---------- Itinerary 5.0 ---------- */
+function activityCardV7(i) {
+  const schedule=i.flexible?(i.daypart||"Anytime"):formatTimeV3(i.time||"");
+  return `<article class="itinerary-card ${i.completed?"activity-complete-v3":""} ${i.skipped?"activity-skipped-v4":""}" data-activity-id="${i.id}" data-date="${i.date}">
+    <button class="drag-handle" data-action="drag-activity-v2" data-id="${i.id}" aria-label="Drag ${esc(i.title)} to reorder">⋮⋮</button>
+    <div class="activity-time">${esc(schedule)}${i.delayMinutes?`<small>+${i.delayMinutes}m</small>`:""}</div>
+    <div class="activity-main">
+      <h4>${i.favorite?"⭐ ":""}${i.completed?"✓ ":""}${i.skipped?"↷ ":""}${ICON[i.type]||"📍"} ${esc(i.title)}</h4>
+      <p>${esc(i.place||i.address||"")}${i.notes?` · ${esc(i.notes)}`:""}</p>
+      <div class="activity-meta">
+        ${i.duration?`<span class="badge gray">⏱ ${formatDuration(i.duration)}</span>`:""}
+        ${i.travelTime?`<span class="badge gray">🚃 ~${formatDuration(i.travelTime)}</span>`:""}
+        ${i.estimatedCost?`<span class="badge gold">💴 ${money(i.estimatedCost)}</span>`:""}
+        ${i.flexible?`<span class="badge gold">${esc(i.daypart||"Flexible")}</span>`:""}
+        ${i.completed?`<span class="badge green">Done</span>`:""}${i.skipped?`<span class="badge gray">Skipped</span>`:""}
+      </div>
+      <div class="activity-actions">
+        <button class="tiny-btn" data-action="toggle-favorite-v7" data-kind="activity" data-id="${i.id}">${i.favorite?"★":"☆"}</button>
+        <button class="tiny-btn" data-action="move-activity-step-v3" data-id="${i.id}" data-step="-1">↑</button>
+        <button class="tiny-btn" data-action="move-activity-step-v3" data-id="${i.id}" data-step="1">↓</button>
+        <button class="tiny-btn" data-action="push-later-v7" data-id="${i.id}">Push later</button>
+        <button class="tiny-btn" data-action="edit-activity-v2" data-id="${i.id}">Edit</button>
+        <button class="tiny-btn" data-action="duplicate-activity-v2" data-id="${i.id}">Duplicate</button>
+        <button class="tiny-btn" data-action="move-activity-v2" data-id="${i.id}">Move day</button>
+        ${(i.address||i.lat||i.place)?`<a class="tiny-btn" href="${esc(preferredMapUrlV3(i))}" target="_blank" rel="noopener">Map</a>`:""}
+        <button class="tiny-btn danger" data-action="delete-v2" data-collection="itinerary" data-id="${i.id}">Delete</button>
+      </div>
+    </div>
+  </article>`;
+}
+
+function itineraryHTMLV7(date) {
+  const t=trip();
+  if(!allDates(t).includes(date))date=activeDate(t);
+  state.activeItineraryDate=date;
+  const items=activitiesOn(date,t),intensity=dayIntensityV7(date,t),warnings=scheduleWarningsV4(date,t);
+  const totalDuration=items.filter(x=>!x.skipped).reduce((s,x)=>s+Number(x.duration||0),0);
+  const travel=items.filter(x=>!x.skipped).reduce((s,x)=>s+Number(x.travelTime||0),0);
+  const collapsed=!!state.collapsedDays[`${t.id}:${date}`];
+  const budget=dayBudgetV7(date,t),planned=plannedCostDateV7(date,t),actual=spentDate(date,t);
+  const unscheduled=unscheduledPlacesV7(t).slice(0,5);
+
+  return `<div class="section-title"><h3>🗓️ Itinerary</h3><div class="section-actions-v3">
+    <button data-action="open-plan-day-v7" data-date="${date}">🍓 Plan My Day</button>
+    <button data-action="optimize-route-v7" data-date="${date}">🗺 Route order</button>
+    <button data-action="save-day-template-v4" data-date="${date}">Save day</button>
+    <button data-action="use-day-template-v4" data-date="${date}">Use template</button>
+    <button data-action="duplicate-day-v3" data-date="${date}">Duplicate</button>
+    <button data-action="quick-add-type" data-type="activity">＋ Activity</button>
+  </div></div>
+  <div class="chips">${allDates(t).map(d=>`<button class="chip ${d===date?"active":""}" data-action="show-itinerary-date-v3" data-date="${d}">Day ${dayNo(d,t)} · ${nice(d,{month:"short",day:"numeric"})}</button>`).join("")}</div>
+
+  <div class="day-smart-strip-v7">
+    <div class="intensity-pill-v7 ${intensity.key}"><span>${intensity.icon}</span><strong>${intensity.label}</strong><small>${formatDuration(intensity.minutes)} active</small></div>
+    <button class="day-budget-pill-v7" data-action="edit-day-budgets-v7"><span>💴 Day budget</span><strong>${budget?money(budget):"Not set"}</strong><small>${money(actual)} actual · ${money(planned)} expected</small></button>
+  </div>
+
+  ${warnings.length?`<div class="schedule-warnings-v4">${warnings.map(w=>`<div class="notice-card ${w.severity==="high"?"danger":""}"><span class="notice-icon">${w.icon}</span><span><strong>${esc(w.title)}</strong><p>${esc(w.detail)}</p></span></div>`).join("")}</div>`:""}
+
+  <div id="itineraryDay"><div class="day-summary day-summary-v3" data-action="toggle-day-collapse-v3" data-date="${date}" role="button" tabindex="0" aria-expanded="${!collapsed}">
+    <div><strong>${items.length}</strong><small>activities</small></div><div><strong>${formatDuration(totalDuration)||"—"}</strong><small>planned</small></div><div><strong>${formatDuration(travel)||"—"}</strong><small>rough travel</small></div><span>${collapsed?"Show":"Hide"} day</span>
+  </div>
+  ${collapsed?`<div class="collapsed-day-v3">Day collapsed · ${items.length} activities</div>`:items.length?`<div data-itinerary-date="${date}">${items.map(i=>`${i.travelTime&&!i.skipped?`<div class="travel-block-v3">🚃 ~${formatDuration(i.travelTime)} before this stop</div>`:""}${activityCardV7(i)}`).join("")}</div>`:empty("🗓️","Nothing planned yet","Use Plan My Day, add an activity, or pull a saved place into this day.")}</div>
+
+  ${unscheduled.length?`<section class="section"><div class="section-title"><h3>📍 Waiting to be scheduled</h3><button data-action="set-plan-view" data-feature="smart">See all</button></div><div class="smart-place-tray-v7">${unscheduled.map(p=>smartPlaceMiniV7(p,date)).join("")}</div></section>`:""}`;
+}
+
+activityCardV2 = activityCardV7;
+itineraryHTML = itineraryHTMLV7;
+
+/* ---------- Trip Notes + scratchpad ---------- */
+function notesHTMLV7() {
+  const t=trip(),notes=[...t.quickNotes].sort((a,b)=>Number(b.pinned)-Number(a.pinned)||b.createdAt-a.createdAt);
+  return `<div class="section-title"><h3>📝 Trip Notes</h3><span class="meta">local only</span></div>
+  <form id="tripNotesFormV7" class="card trip-notes-v7"><label>TRIP NOTEBOOK</label><textarea name="notes" placeholder="Big-picture notes, hotel reminders, things to remember...">${esc(t.tripNotes||"")}</textarea><button class="btn soft">Save Trip Notes</button></form>
+  <section class="section"><div class="section-title"><h3>⚡ Scratchpad</h3><span class="meta">capture in seconds</span></div>
+    <form id="scratchpadFormV7" class="scratch-add-v7"><input name="text" required placeholder="Cafe from TikTok · buy Suica · ask hotel about luggage..."><button class="btn primary">＋</button></form>
+    <div class="scratch-list-v7">${notes.length?notes.map(n=>`<article class="scratch-card-v7 ${n.pinned?"pinned":""}"><button data-action="pin-scratch-v7" data-id="${n.id}" aria-label="Pin note">${n.pinned?"📌":"○"}</button><p>${esc(n.text)}</p><div><button class="tiny-btn" data-action="scratch-to-inbox-v7" data-id="${n.id}">→ Inbox</button><button class="tiny-btn danger" data-action="delete-scratch-v7" data-id="${n.id}">Delete</button></div></article>`).join(""):empty("⚡","Scratchpad is empty","Drop quick thoughts here without organizing them first.")}</div>
+  </section>`;
+}
+
+/* ---------- Inbox conversion 5.0 ---------- */
+function inboxHTMLV7() {
+  const arr=[...trip().inbox].sort((a,b)=>Number(a.status==="archived")-Number(b.status==="archived")||b.createdAt-a.createdAt);
+  return `<div class="section-title"><h3>📥 Trip Inbox</h3><button data-action="add-inbox-v3">＋ Capture</button></div>
+    <div class="notice-card"><span class="notice-icon">💡</span><span><strong>Dump first, organize later.</strong><p>Turn any capture into a place, activity, booking, task or scratch note when you're ready.</p></span></div>
+    <div class="list" style="margin-top:10px">${arr.length?arr.map(x=>`<article class="inbox-card-v3 ${x.status==="archived"?"archived":""}">
+      ${x.fileKey?`<button class="inbox-thumb-v3" data-action="open-file-v2" data-file-key="${x.fileKey}" data-file-kind="image"><span>🖼️</span></button>`:`<div class="inbox-thumb-v3">📥</div>`}
+      <div class="row-main"><div class="badge gray">${esc(x.type)}</div><h4>${esc(x.title)}</h4><p>${esc(x.note||"")}</p>${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener" class="inline-link-v3">Open saved link ↗</a>`:""}
+        <div class="activity-actions"><button class="tiny-btn" data-action="edit-inbox-v3" data-id="${x.id}">Edit</button>${["Place","Activity","Booking","Task","Note"].map(k=>`<button class="tiny-btn" data-action="convert-inbox-v7" data-id="${x.id}" data-target="${k}">→ ${k}</button>`).join("")}<button class="tiny-btn" data-action="archive-inbox-v3" data-id="${x.id}">${x.status==="archived"?"Restore":"Archive"}</button><button class="tiny-btn danger" data-action="delete-inbox-v3" data-id="${x.id}">Delete</button></div>
+      </div></article>`).join(""):empty("📥","Your Trip Inbox is empty","Capture anything you want to sort out later.")}</div>`;
+}
+inboxHTMLV3 = inboxHTMLV7;
+
+function convertInboxV7(id,target) {
+  const t=trip(),x=t.inbox.find(i=>i.id===id);if(!x)return;
+  pushUndoV7("Inbox conversion");
+  if(target==="Place"){
+    t.places.push(ensureTripV7({places:[{id:uuid(),name:x.title,area:"",category:"Other",priority:"Want",favorite:false,openingHours:"",address:"",mapUrl:x.url||"",reservationUrl:"",tags:[],notes:x.note||"",votes:{},visited:false,estimatedDuration:90,estimatedCost:0}],itinerary:[],bookings:[],packing:[],preTrip:[],expenses:[],memories:[],essentials:{contacts:[],documents:[],phrases:[]}}).places[0]);
+  } else if(target==="Activity"){
+    t.itinerary.push({id:uuid(),date:state.activeItineraryDate||activeDate(t),time:"",daypart:"Anytime",duration:60,travelTime:0,type:"place",title:x.title,place:"",address:"",notes:[x.note,x.url].filter(Boolean).join(" · "),flexible:true,lat:null,lng:null,sourcePlaceId:"",estimatedCost:0,favorite:false,order:activitiesOn(state.activeItineraryDate||activeDate(t),t).length,completed:false,skipped:false});
+  } else if(target==="Booking"){
+    t.bookings.push({id:uuid(),type:"Reservation",title:x.title,date:activeDate(t),time:"",endDate:"",endTime:"",confirmation:"",address:"",link:x.url||"",status:"Saved",notes:x.note||"",attachmentKey:"",attachmentName:""});
+  } else if(target==="Task"){
+    t.preTrip.push({id:uuid(),name:x.title,detail:[x.note,x.url].filter(Boolean).join(" · "),done:false,category:"Other",priority:"Medium",dueDate:""});
+  } else {
+    t.quickNotes.push({id:uuid(),text:[x.title,x.note,x.url].filter(Boolean).join(" — "),pinned:false,createdAt:Date.now()});
+  }
+  x.status="archived";
+  markChangedV7(`Converted Inbox item to ${target}`,"inbox",id);
+  render();notify(`Added to ${target}`);
+}
+
+/* ---------- Day budgets ---------- */
+function dayBudgetModalV7() {
+  const t=trip();
+  openModal("Daily Budgets",`<form id="dayBudgetsFormV7" class="form-grid">
+    <p class="meta">Leave a day at 0 to use your default daily budget of ${money(t.dailyBudget)}.</p>
+    ${allDates(t).map(d=>`<div class="form-row"><label>DAY ${dayNo(d,t)} · ${nice(d)}</label><input name="day_${d}" type="number" min="0" step=".01" value="${Number(t.dayBudgets[d]||0)}" placeholder="${Number(t.dailyBudget||0)}"></div>`).join("")}
+    <button class="btn primary">Save day budgets</button>
+  </form>`);
+}
+
+const budgetHTMLBeforeV7 = budgetHTML;
+budgetHTML = function budgetHTMLV7() {
+  const base=budgetHTMLBeforeV7();
+  const t=trip(),rows=allDates(t);
+  return `${base}<section class="section"><div class="section-title"><h3>🗓️ Day budgets</h3><button data-action="edit-day-budgets-v7">Edit</button></div><div class="day-budget-list-v7">${rows.map(d=>{const b=dayBudgetV7(d,t),a=spentDate(d,t),p=plannedCostDateV7(d,t),over=b>0&&(a>b||p>b);return`<div class="day-budget-row-v7 ${over?"over":""}"><div><strong>Day ${dayNo(d,t)}</strong><small>${nice(d,{month:"short",day:"numeric"})}</small></div><div><span>Budget</span><strong>${b?money(b):"—"}</strong></div><div><span>Expected</span><strong>${money(p)}</strong></div><div><span>Actual</span><strong>${money(a)}</strong></div></div>`}).join("")}</div></section>`;
+};
+
+/* ---------- Plan navigation ---------- */
+const planHTMLBeforeV7 = planHTML;
+planHTML = function planHTMLV7(v) {
+  if(v==="smart")return smartPlannerHTMLV7();
+  if(v==="notes")return notesHTMLV7();
+  return planHTMLBeforeV7(v);
+};
+
+renderPlan = function renderPlanV7() {
+  const menu=[
+    ["itinerary","🗓️","Itinerary"],["smart","🍓","Smart Planner"],["inbox","📥","Inbox"],["notes","📝","Notes"],
+    ["places","📍","Places"],["map","🗺️","Map"],["bookings","🎟️","Bookings"],["packing","🧳","Packing"],
+    ["before","✅","Before You Go"],["essentials","🆘","Essentials"]
+  ];
+  main.innerHTML=`<div class="page-head"><div><p class="eyebrow">PLAN</p><h1>Plan your trip</h1><p>${esc(trip().title)}</p></div><button class="btn soft" data-action="open-quick-add">＋ Add</button></div><div class="chips">${menu.map(([k,e,l])=>`<button class="chip ${state.planView===k?"active":""}" data-action="set-plan-view" data-feature="${k}">${e} ${l}</button>`).join("")}</div><section class="section">${planHTML(state.planView)}</section>`;
+};
+
+/* ---------- Dashboard customization ---------- */
+function dashboardWidgetHTMLV7(key) {
+  const t=trip(),date=activeDate(t);
+  if(key==="mustgo"){
+    const n=unscheduledPlacesV7(t).filter(p=>p.priority==="Must go").length;
+    return `<button class="dash-widget-v7" data-action="set-plan-view-home-v7" data-feature="smart"><span>❤️</span><strong>${n}</strong><small>Must-Go waiting</small></button>`;
+  }
+  if(key==="intensity"){
+    const x=dayIntensityV7(date,t);
+    return `<button class="dash-widget-v7" data-action="go-today-v7"><span>${x.icon}</span><strong>${x.label}</strong><small>Day ${dayNo(date,t)} intensity</small></button>`;
+  }
+  if(key==="daybudget"){
+    const b=dayBudgetV7(date,t),a=spentDate(date,t);
+    return `<button class="dash-widget-v7" data-action="set-spend-view-home-v7" data-feature="budget"><span>💴</span><strong>${b?money(Math.max(0,b-a)):"—"}</strong><small>Day budget left</small></button>`;
+  }
+  if(key==="scratchpad")return `<button class="dash-widget-v7" data-action="set-plan-view-home-v7" data-feature="notes"><span>⚡</span><strong>${t.quickNotes.length}</strong><small>Scratch notes</small></button>`;
+  if(key==="recent")return `<button class="dash-widget-v7 wide" data-action="set-plan-view-home-v7" data-feature="notes"><span>🕘</span><strong>${esc(t.recentChanges[0]?.label||"No recent edits")}</strong><small>${t.recentChanges[0]?new Date(t.recentChanges[0].at).toLocaleString():"Changes you make will appear here"}</small></button>`;
+  if(key==="storage")return `<button class="dash-widget-v7" data-action="open-storage-v7"><span>💾</span><strong id="dashboardStorageV7">…</strong><small>Local media</small></button>`;
+  return "";
+}
+
+function dashboardExtraHTMLV7() {
+  const widgets=state.settings.dashboardWidgets||DEFAULT_DASHBOARD_WIDGETS_V7;
+  return `<section class="section dashboard-extra-v7"><div class="section-title"><h3>My quick dashboard</h3><button data-action="customize-dashboard-v7">Customize</button></div><div class="dashboard-grid-v7">${widgets.map(dashboardWidgetHTMLV7).join("")}</div></section>`;
+}
+
+const renderHomeBeforeV7 = renderHome;
+renderHome = function renderHomeV7() {
+  renderHomeBeforeV7();
+  main.insertAdjacentHTML("beforeend",dashboardExtraHTMLV7());
+};
+
+function dashboardCustomizeModalV7() {
+  const defs=window.ICHIGO_DATA?.dashboardWidgetsV7||[];
+  const selected=new Set(state.settings.dashboardWidgets||[]);
+  openModal("Customize Dashboard",`<form id="dashboardFormV7" class="form-grid"><p class="meta">Choose the extra personal cards shown under your Home travel shelf.</p><div class="dashboard-choices-v7">${defs.map(x=>`<label><input type="checkbox" name="widgets" value="${x.id}" ${selected.has(x.id)?"checked":""}><span>${x.icon}</span><span><strong>${esc(x.label)}</strong><small>${esc(x.description)}</small></span></label>`).join("")}</div><button class="btn primary">Save dashboard</button></form>`);
+}
+
+async function updateDashboardStorageV7(){
+  const el=document.querySelector("#dashboardStorageV7");if(!el||!window.IchigoDB)return;
+  try{const s=await IchigoDB.stats();el.textContent=formatBytesV7(s.bytes)}catch{el.textContent="—"}
+}
+
+/* ---------- Memories 6.0 ---------- */
+function memoryCardV7(m) {
+  return `<article class="card memory-card ${m.favorite?"favorite-memory-v7":""}">
+    ${m.photoKey?`<button class="memory-photo" data-action="open-file-v2" data-file-key="${m.photoKey}" data-file-kind="image"><span class="file-placeholder">📸</span></button>`:m.image?`<img class="memory-photo" src="${m.image}" alt="">`:`<div class="memory-photo memory-placeholder-v7">${m.memoryType==="Food"?"🍜":"📸"}</div>`}
+    <div class="memory-body"><div class="memory-badges-v7"><span class="badge gray">${esc(m.memoryType||"Moment")}</span>${m.favorite?`<span class="badge gold">⭐ Favorite</span>`:""}</div><h4>${esc(m.title||"Little memory")}</h4>${m.prompt?`<small class="memory-prompt-v7">${esc(m.prompt)}</small>`:""}<p>${esc(m.note||"")}</p><div class="journal-location">🗓 ${nice(m.date)}${m.time?` · ${esc(formatTimeV3(m.time))}`:""}${m.location?` · 📍 ${esc(m.location)}`:""}</div><div class="activity-actions"><button class="tiny-btn" data-action="toggle-favorite-v7" data-kind="memory" data-id="${m.id}">${m.favorite?"★":"☆"}</button><button class="tiny-btn" data-action="edit-memory-v2" data-id="${m.id}">Edit</button><button class="tiny-btn danger" data-action="delete-v2" data-collection="memories" data-id="${m.id}">Delete</button></div></div>
+  </article>`;
+}
+
+function memoriesHTMLV7() {
+  const t=trip(),filter=state.memoryFilter||"all";
+  let arr=[...t.memories].sort((a,b)=>`${b.date} ${b.time||""}`.localeCompare(`${a.date} ${a.time||""}`));
+  if(filter==="favorites")arr=arr.filter(x=>x.favorite);
+  if(filter==="food")arr=arr.filter(x=>x.memoryType==="Food");
+  const prompt=randomJournalPromptV7();
+  return `<div class="section-title"><h3>📸 Travel Journal</h3><div><button data-action="prompt-memory-v7" data-prompt="${esc(prompt)}">✨ Prompt me</button><button data-action="quick-add-type" data-type="memory">＋ Memory</button></div></div>
+    <div class="journal-prompt-card-v7"><span>✨</span><div><small>JOURNAL PROMPT</small><strong>${esc(prompt)}</strong></div><button data-action="prompt-memory-v7" data-prompt="${esc(prompt)}">Write</button></div>
+    <div class="chips">${[["all","All"],["favorites","⭐ Favorites"],["food","🍜 Food"]].map(([k,l])=>`<button class="chip ${filter===k?"active":""}" data-action="memory-filter-v7" data-filter="${k}">${l}</button>`).join("")}</div>
+    ${arr.length?`<div class="grid-2 memory-grid-v7">${arr.map(memoryCardV7).join("")}</div>`:empty("📸","Your travel journal starts here","Add photos and tiny notes as the trip unfolds.","memory")}`;
+}
+memoriesHTML = memoriesHTMLV7;
+
+function timelineRowsV7(date,t=trip()) {
+  const rows=[];
+  activitiesOn(date,t).forEach(a=>rows.push({kind:"activity",time:a.time||"",order:a.flexible?30:10,title:a.title,detail:a.place||a.notes||"",icon:ICON[a.type]||"📍",favorite:a.favorite,id:a.id}));
+  t.memories.filter(m=>m.date===date).forEach(m=>rows.push({kind:"memory",time:m.time||"",order:20,title:m.title||"Memory",detail:m.note||m.location||"",icon:m.memoryType==="Food"?"🍜":"📸",favorite:m.favorite,id:m.id,photoKey:m.photoKey}));
+  t.expenses.filter(e=>e.date===date).forEach(e=>rows.push({kind:"expense",time:"",order:40,title:e.merchant||e.title,detail:`${money(e.amount)} · ${e.category}`,icon:expenseEmoji(e.category),id:e.id}));
+  return rows.sort((a,b)=>{
+    const at=a.time?minutesFromTime(a.time):9999+a.order,bt=b.time?minutesFromTime(b.time):9999+b.order;
+    return at-bt;
+  });
+}
+
+function timelineHTMLV7() {
+  const t=trip(),date=allDates(t).includes(state.storyDate)?state.storyDate:activeDate(t);
+  state.storyDate=date;
+  const rows=timelineRowsV7(date,t);
+  return `<div class="section-title"><h3>🕰️ Day Timeline</h3><span class="meta">plans + spending + memories</span></div>
+    <div class="chips">${allDates(t).map(d=>`<button class="chip ${date===d?"active":""}" data-action="story-date-v7" data-date="${d}">Day ${dayNo(d,t)}</button>`).join("")}</div>
+    <div class="story-day-summary-v7"><span>${dayIntensityV7(date,t).icon} ${dayIntensityV7(date,t).label}</span><span>💸 ${money(spentDate(date,t))}</span><span>📸 ${t.memories.filter(m=>m.date===date).length}</span></div>
+    ${rows.length?`<div class="story-timeline-v7">${rows.map(r=>`<article class="story-row-v7 ${r.favorite?"favorite":""}"><div class="story-time-v7">${r.time?esc(formatTimeV3(r.time)):"Anytime"}</div><div class="story-dot-v7">${r.icon}</div><div class="story-content-v7"><strong>${r.favorite?"⭐ ":""}${esc(r.title)}</strong><p>${esc(r.detail)}</p>${r.photoKey?`<button class="story-photo-v7" data-action="open-file-v2" data-file-key="${r.photoKey}" data-file-kind="image"><span>📸</span></button>`:""}</div></article>`).join("")}</div>`:empty("🕰️","A quiet day","Your itinerary, expenses and memories will combine here automatically.")}`;
+}
+
+function foodDiaryHTMLV7() {
+  const t=trip(),foodExpenses=t.expenses.filter(e=>normCat(e.category)==="Food"),foodMemories=t.memories.filter(m=>m.memoryType==="Food");
+  const dates=[...new Set([...foodExpenses.map(x=>x.date),...foodMemories.map(x=>x.date)])].sort();
+  return `<div class="section-title"><h3>🍜 Food Diary</h3><span class="meta">${foodExpenses.length} food expenses · ${foodMemories.length} food memories</span></div>
+    ${dates.length?dates.map(d=>`<section class="food-day-v7"><div class="section-title"><h3>Day ${dayNo(d,t)} · ${nice(d)}</h3><span>${money(foodExpenses.filter(x=>x.date===d).reduce((s,x)=>s+Number(x.amount||0),0))}</span></div><div class="food-grid-v7">${foodMemories.filter(x=>x.date===d).map(memoryCardV7).join("")}${foodExpenses.filter(x=>x.date===d).map(e=>`<article class="card food-expense-v7"><span>🍽️</span><div><strong>${esc(e.merchant||e.title)}</strong><p>${money(e.amount)} · ${esc(e.payment||"")}</p>${e.notes?`<small>${esc(e.notes)}</small>`:""}</div></article>`).join("")}</div></section>`).join(""):empty("🍜","Your food diary is waiting","Mark memories as Food or record food expenses and they'll gather here automatically.")}`;
+}
+
+function highlightsHTMLV7() {
+  const t=trip(),places=t.places.filter(x=>x.favorite),activities=t.itinerary.filter(x=>x.favorite),mem=t.memories.filter(x=>x.favorite);
+  return `<div class="section-title"><h3>⭐ Trip Highlights</h3><span class="meta">${places.length+activities.length+mem.length} favorites</span></div>
+    <div class="highlight-hero-v7"><span>🍓</span><div><h2>Your favorite little things</h2><p>Stars from planning and travel day collect here automatically.</p></div></div>
+    <section class="section"><h3>📍 Favorite places</h3>${places.length?`<div class="highlight-list-v7">${places.map(p=>`<button data-action="toggle-favorite-v7" data-kind="place" data-id="${p.id}"><span>⭐</span><div><strong>${esc(p.name)}</strong><small>${esc(p.area||p.category)}</small></div></button>`).join("")}</div>`:empty("📍","No favorite places yet","Tap the star on places you love.")}</section>
+    <section class="section"><h3>🗓️ Favorite activities</h3>${activities.length?`<div class="highlight-list-v7">${activities.map(a=>`<button data-action="toggle-favorite-v7" data-kind="activity" data-id="${a.id}"><span>⭐</span><div><strong>${esc(a.title)}</strong><small>Day ${dayNo(a.date,t)} · ${esc(a.place||"")}</small></div></button>`).join("")}</div>`:empty("🗓️","No favorite activities yet","Star an activity from your itinerary.")}</section>
+    <section class="section"><h3>📸 Favorite memories</h3>${mem.length?`<div class="grid-2">${mem.map(memoryCardV7).join("")}</div>`:empty("📸","No favorite memories yet","Star the moments you never want to lose.")}</section>`;
+}
+
+function visitedMapHTMLV7() {
+  const t=trip(),visited=t.places.filter(p=>p.visited&&p.lat&&p.lng),mem=t.memories.filter(m=>m.lat&&m.lng);
+  return `<div class="section-title"><h3>🗺️ Visited Story Map</h3><span class="meta">${visited.length} visited places · ${mem.length} mapped memories</span></div>
+    <div class="map-shell story-map-shell-v7"><div id="storyMapV7"></div>${!navigator.onLine?`<div class="map-overlay-note">Saved coordinates stay available offline. Background map tiles may only appear if they were cached during an earlier online visit.</div>`:""}</div>
+    <div class="story-map-legend-v7"><span>📍 Visited place</span><span>📸 Memory</span></div>`;
+}
+
+function initStoryMapV7() {
+  const el=document.querySelector("#storyMapV7");if(!el)return;
+  if(typeof L==="undefined"){el.innerHTML=empty("🗺️","Map library unavailable","Reconnect once to load the map library. Your saved locations are still in Ichigo.");return}
+  try{if(storyMapV7){storyMapV7.remove();storyMapV7=null}}catch{}
+  const t=trip(),places=t.places.filter(p=>p.visited&&p.lat&&p.lng),mem=t.memories.filter(m=>m.lat&&m.lng),all=[...places,...mem];
+  const fallback=all[0]?[all[0].lat,all[0].lng]:[35.6762,139.6503];
+  storyMapV7=L.map(el,{zoomControl:true}).setView(fallback,11);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(storyMapV7);
+  const bounds=[];
+  places.forEach(p=>{L.marker([p.lat,p.lng]).addTo(storyMapV7).bindPopup(`<strong>📍 ${esc(p.name)}</strong><br>${esc(p.area||"")}`);bounds.push([p.lat,p.lng])});
+  mem.forEach(m=>{L.circleMarker([m.lat,m.lng],{radius:7}).addTo(storyMapV7).bindPopup(`<strong>📸 ${esc(m.title||"Memory")}</strong><br>${esc(m.note||"")}`);bounds.push([m.lat,m.lng])});
+  if(bounds.length>1)storyMapV7.fitBounds(bounds,{padding:[24,24],maxZoom:14});
+  setTimeout(()=>storyMapV7?.invalidateSize(),80);
+}
+
+/* ---------- Automatic scrapbook + recap ---------- */
+function scrapbookHTMLV7() {
+  const t=trip(),days=allDates(t);
+  return `<div class="section-title"><h3>📖 Automatic Scrapbook</h3><span class="meta">${t.memories.length} memories</span></div>
+    <div class="scrapbook-cover-v7">${t.coverKey?`<div class="scrapbook-cover-photo-v7" data-file-key="${t.coverKey}"></div>`:""}<div><span>${esc(t.countryEmoji||"✈️")}</span><p class="eyebrow">TRAVEL STORY</p><h2>${esc(t.title)}</h2><p>${nice(t.startDate)} – ${nice(t.endDate,{month:"short",day:"numeric",year:"numeric"})}</p></div></div>
+    ${days.map(d=>{
+      const plans=activitiesOn(d,t),mem=t.memories.filter(m=>m.date===d),food=t.expenses.filter(e=>e.date===d&&normCat(e.category)==="Food"),hero=mem.find(m=>m.favorite&&m.photoKey)||mem.find(m=>m.photoKey),done=plans.filter(x=>x.completed).length;
+      return `<article class="scrap-page-v7">
+        <div class="scrap-page-head-v7"><div><small>DAY ${dayNo(d,t)}</small><h3>${nice(d,{weekday:"long",month:"long",day:"numeric"})}</h3></div><div><span>${dayIntensityV7(d,t).icon} ${dayIntensityV7(d,t).label}</span><span>💸 ${money(spentDate(d,t))}</span></div></div>
+        ${hero?`<button class="scrap-hero-v7" data-action="open-file-v2" data-file-key="${hero.photoKey}" data-file-kind="image"><span>📸 ${esc(hero.title||"Favorite moment")}</span></button>`:""}
+        <div class="scrap-stats-v7"><span>✓ ${done}/${plans.length} plans</span><span>📸 ${mem.length} memories</span><span>🍜 ${food.length} meals logged</span></div>
+        ${plans.length?`<div class="scrap-route-v7">${plans.filter(x=>!x.skipped).map(x=>`<span>${ICON[x.type]||"📍"} ${esc(x.title)}</span>`).join("")}</div>`:""}
+        ${mem.length?`<div class="scrap-memory-grid-v7">${mem.map(m=>m.photoKey?`<button data-action="open-file-v2" data-file-key="${m.photoKey}" data-file-kind="image"><span>${m.favorite?"⭐":"📸"}</span></button>`:`<div><span>${m.memoryType==="Food"?"🍜":"💭"}</span><small>${esc(m.title||"Memory")}</small></div>`).join("")}</div>`:""}
+        ${mem.filter(m=>m.note).slice(0,3).map(m=>`<blockquote class="scrap-quote-v7">${m.favorite?"⭐ ":""}${esc(m.note)}</blockquote>`).join("")}
+      </article>`;
+    }).join("")}`;
+}
+scrapbookHTMLV2 = scrapbookHTMLV7;
+
+function recapHTMLV7() {
+  const t=trip(),total=spent(t),days=daysBetween(t.startDate,t.endDate),visited=t.places.filter(p=>p.visited),favorites=t.memories.filter(m=>m.favorite);
+  const categories={};t.expenses.forEach(e=>categories[normCat(e.category)]=(categories[normCat(e.category)]||0)+Number(e.amount||0));
+  const topCat=Object.entries(categories).sort((a,b)=>b[1]-a[1])[0];
+  const busiest=allDates(t).map(d=>({date:d,intensity:dayIntensityV7(d,t),spend:spentDate(d,t)})).sort((a,b)=>b.intensity.score-a.intensity.score)[0];
+  const meals=t.expenses.filter(e=>normCat(e.category)==="Food").length;
+  return `<div class="recap-hero-v7"><span>${esc(t.countryEmoji||"✈️")}</span><p class="eyebrow">ICHIGO TRIP RECAP</p><h2>${esc(t.title)}</h2><p>${days} days · ${nice(t.startDate)} – ${nice(t.endDate,{month:"short",day:"numeric",year:"numeric"})}</p></div>
+    <div class="recap-grid-v7">
+      <div class="card"><span>📍</span><strong>${visited.length}</strong><small>places visited</small></div>
+      <div class="card"><span>📸</span><strong>${t.memories.length}</strong><small>memories</small></div>
+      <div class="card"><span>⭐</span><strong>${favorites.length}</strong><small>favorite moments</small></div>
+      <div class="card"><span>🍜</span><strong>${meals}</strong><small>food entries</small></div>
+      <div class="card"><span>💴</span><strong>${money(total)}</strong><small>tracked spending</small></div>
+      <div class="card"><span>🗓️</span><strong>${t.itinerary.filter(x=>x.completed).length}</strong><small>activities done</small></div>
+    </div>
+    <div class="grid-2" style="margin-top:10px">
+      <div class="card recap-feature-v7"><small>TOP SPENDING CATEGORY</small><strong>${topCat?`${expenseEmoji(topCat[0])} ${esc(topCat[0])}`:"—"}</strong><p>${topCat?money(topCat[1]):"No expenses yet"}</p></div>
+      <div class="card recap-feature-v7"><small>BUSIEST PLANNED DAY</small><strong>${busiest?`${busiest.intensity.icon} Day ${dayNo(busiest.date,t)}`:"—"}</strong><p>${busiest?`${busiest.intensity.label} · ${money(busiest.spend)} spent`:"No itinerary yet"}</p></div>
+    </div>
+    ${favorites.length?`<section class="section"><div class="section-title"><h3>⭐ Favorite moments</h3></div><div class="grid-2">${favorites.slice(0,6).map(memoryCardV7).join("")}</div></section>`:""}
+    <section class="section"><div class="notice-card success"><span class="notice-icon">📖</span><span><strong>Your trip stays on the Travel Shelf.</strong><p>Open Timeline, Food Diary, Highlights, Story Map and Scrapbook anytime after you come home.</p></span></div></section>`;
+}
+recapHTML = recapHTMLV7;
+
+/* ---------- Travel calendar 2.0 ---------- */
+function statsHTMLV7() {
+  const s=personalTravelStatsV4(),trips=[...(state.trips||[])].map(ensureTripV7).sort((a,b)=>a.startDate.localeCompare(b.startDate));
+  const years=[...new Set(trips.map(x=>parseDate(x.startDate)?.getFullYear()).filter(Boolean))].sort();
+  const monthNames=Array.from({length:12},(_,i)=>new Date(2026,i,1).toLocaleDateString(undefined,{month:"short"}));
+  return `<div class="stats-grid-v4">
+    <div class="card"><span>✈️</span><strong>${s.trips}</strong><small>Trips</small></div><div class="card"><span>🌏</span><strong>${s.destinations}</strong><small>Destinations</small></div><div class="card"><span>🗓️</span><strong>${s.days}</strong><small>Travel days</small></div><div class="card"><span>📍</span><strong>${s.visitedPlaces}</strong><small>Places visited</small></div><div class="card"><span>📸</span><strong>${s.memories}</strong><small>Memories</small></div><div class="card"><span>💴</span><strong>${s.totalExpenses?money(s.totalExpenses):"—"}</strong><small>Tracked spending*</small></div>
+  </div><p class="inline-help">*Trips can use different currencies, so the combined spending figure is only directly comparable when their base currencies match.</p>
+  <section class="section"><div class="section-title"><h3>🗓️ Travel Calendar 2.0</h3></div>${years.length?years.map(year=>`<div class="calendar-v7"><h3>${year}</h3><div class="calendar-month-grid-v7">${monthNames.map((m,idx)=>{const monthTrips=trips.filter(x=>parseDate(x.startDate)?.getFullYear()===year&&parseDate(x.startDate)?.getMonth()===idx);return`<div class="calendar-month-v7 ${monthTrips.length?"has-trip":""}"><strong>${m}</strong>${monthTrips.map(x=>`<button data-action="switch-trip" data-id="${x.id}" title="${esc(x.title)}">${esc(x.countryEmoji||"✈️")}<small>${parseDate(x.startDate).getDate()}</small></button>`).join("")}</div>`}).join("")}</div></div>`).join(""):empty("🗓️","No trips yet","Your travel years will collect here automatically.")}</section>`;
+}
+statsHTMLV4 = statsHTMLV7;
+
+/* ---------- Storage manager 7.0 ---------- */
+function formatBytesV7(bytes=0) {
+  const n=Number(bytes||0);if(n<1024)return`${n} B`;if(n<1024**2)return`${(n/1024).toFixed(1)} KB`;if(n<1024**3)return`${(n/1024**2).toFixed(1)} MB`;return`${(n/1024**3).toFixed(2)} GB`;
+}
+
+function allReferencedFileKeysV7() {
+  const keys=new Set();
+  const walk=value=>{
+    if(Array.isArray(value)){value.forEach(walk);return}
+    if(!value||typeof value!=="object")return;
+    Object.entries(value).forEach(([k,v])=>{
+      if(/Key$/.test(k)&&typeof v==="string"&&v)keys.add(v);else walk(v);
+    });
+  };
+  walk(state.trips);return keys;
+}
+
+function clearFileKeyReferencesV7(key,value=state.trips) {
+  if(Array.isArray(value)){value.forEach(v=>clearFileKeyReferencesV7(key,v));return}
+  if(!value||typeof value!=="object")return;
+  Object.keys(value).forEach(k=>{
+    const v=value[k];
+    if(/Key$/.test(k)&&v===key)value[k]="";
+    else clearFileKeyReferencesV7(key,v);
+  });
+}
+
+function storageManagerHTMLV7() {
+  return `<div class="section-title"><h3>💾 Storage Manager</h3><button data-action="cleanup-orphans-v7">Clean unused files</button></div>
+    <div class="notice-card"><span class="notice-icon">📱</span><span><strong>Your media is local to this browser/app.</strong><p>Photos, receipts, tickets and documents are stored separately from the small trip records.</p></span></div>
+    <div id="storageManagerBodyV7" class="storage-manager-v7"><div class="storage-loading-v7">Checking local storage…</div></div>`;
+}
+
+async function renderStorageManagerV7() {
+  const host=document.querySelector("#storageManagerBodyV7");if(!host||!window.IchigoDB)return;
+  try {
+    const records=await IchigoDB.list(),estimate=await navigator.storage?.estimate?.().catch(()=>null),refs=allReferencedFileKeysV7();
+    const total=records.reduce((s,r)=>s+Number(r.blob?.size||0),0),quota=Number(estimate?.quota||0),usage=Number(estimate?.usage||0);
+    const byKind={};records.forEach(r=>{const k=r.kind||"other";byKind[k] ||= {count:0,bytes:0};byKind[k].count++;byKind[k].bytes+=Number(r.blob?.size||0)});
+    host.innerHTML=`<div class="storage-top-v7">
+      <div class="card"><small>ICHIGO MEDIA</small><strong>${formatBytesV7(total)}</strong><span>${records.length} files</span></div>
+      <div class="card"><small>BROWSER USAGE</small><strong>${usage?formatBytesV7(usage):"—"}</strong><span>${quota?`${Math.round(usage/quota*100)}% of estimated quota`:"Quota unavailable"}</span></div>
+      <div class="card"><small>UNUSED FILES</small><strong>${records.filter(r=>!refs.has(r.id)).length}</strong><span>safe cleanup candidates</span></div>
+    </div>
+    <div class="storage-kinds-v7">${Object.entries(byKind).sort((a,b)=>b[1].bytes-a[1].bytes).map(([k,v])=>`<div><span>${esc(k)}</span><strong>${formatBytesV7(v.bytes)}</strong><small>${v.count} file${v.count===1?"":"s"}</small></div>`).join("")}</div>
+    <div class="storage-file-list-v7">${records.sort((a,b)=>Number(b.blob?.size||0)-Number(a.blob?.size||0)).map(r=>`<article><div><span>${r.mime?.startsWith("image/")?"🖼️":"📄"}</span><div><strong>${esc(r.name||"Local file")}</strong><small>${esc(r.kind||"other")} · ${formatBytesV7(r.blob?.size||0)} · ${refs.has(r.id)?"in use":"unused"}</small></div></div><button class="tiny-btn danger" data-action="delete-local-file-v7" data-key="${r.id}" data-name="${esc(r.name||"file")}">Delete</button></article>`).join("")||`<div class="empty"><div class="emoji">💾</div><h3>No local media yet</h3><p>Photos and attachments will appear here.</p></div>`}</div>`;
+  } catch(error) {
+    logErrorV7(error,"storage-manager");
+    host.innerHTML=`<div class="notice-card danger"><span class="notice-icon">⚠️</span><span><strong>Storage couldn't be read.</strong><p>${esc(error.message||"IndexedDB error")}</p></span></div>`;
+  }
+}
+
+async function cleanupOrphansV7() {
+  const refs=allReferencedFileKeysV7(),records=await IchigoDB.list(),orphans=records.filter(r=>!refs.has(r.id));
+  if(!orphans.length){notify("No unused local files found.");return}
+  if(!confirm(`Delete ${orphans.length} unused local file${orphans.length===1?"":"s"}?`))return;
+  for(const r of orphans)await IchigoDB.remove(r.id);
+  renderStorageManagerV7();notify("Unused local files cleaned up.");
+}
+
+/* ---------- Offline Center ---------- */
+function offlineCenterHTMLV7() {
+  const prepared=state.settings.offlinePreparedAt;
+  return `<div class="section-title"><h3>📴 Offline Center</h3><span class="badge ${navigator.onLine?"green":"gray"}">${navigator.onLine?"Online":"Offline"}</span></div>
+    <div class="offline-grid-v7">
+      <div class="card offline-ready-v7"><span>✅</span><div><strong>Trip records</strong><p>Itinerary, places, budgets, notes, tasks, phrases and settings are stored locally.</p></div></div>
+      <div class="card offline-ready-v7"><span>✅</span><div><strong>Photos & documents</strong><p>IndexedDB attachments stay on this device unless browser storage is cleared.</p></div></div>
+      <div class="card offline-conditional-v7"><span>🗺️</span><div><strong>Map backgrounds</strong><p>Coordinates stay local. OpenStreetMap tiles are cached opportunistically as you view them, but full areas are not guaranteed offline.</p></div></div>
+      <div class="card offline-conditional-v7"><span>💱</span><div><strong>Live exchange rates</strong><p>Refreshing rates needs internet; your last saved/fallback rates remain usable.</p></div></div>
+    </div>
+    <div class="card offline-actions-v7"><h3>Prepare before you leave</h3><p>Open Ichigo online once, visit the screens you care about, and prepare the core shell. For maps, open the actual areas/zoom levels you expect to use.</p><div class="btn-row wrap-v3"><button class="btn primary" data-action="prepare-offline-v7">Prepare core offline</button><button class="btn soft" data-action="request-persistence-v7">Protect local storage</button><button class="btn" data-action="clear-map-cache-v7">Clear runtime map cache</button></div>${prepared?`<small>Last prepared: ${new Date(prepared).toLocaleString()}</small>`:""}</div>`;
+}
+
+async function prepareOfflineV7() {
+  if(!navigator.onLine){notify("Reconnect first, then prepare the offline shell.");return}
+  try{
+    const urls=["./","./index.html","./style.css?v=20260811-build7","./app.js?v=20260811-build7","./data/data.js?v=20260811-build7","./data/db.js?v=20260811-build7","https://unpkg.com/leaflet@1.9.4/dist/leaflet.css","https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"];
+    await Promise.allSettled(urls.map(u=>fetch(u,{cache:"reload"})));
+    state.settings.offlinePreparedAt=new Date().toISOString();save();render();notify("Core offline resources refreshed ✓");
+  }catch(error){logErrorV7(error,"prepare-offline");notify("Some offline resources couldn't be refreshed.")}
+}
+
+/* ---------- Release readiness ---------- */
+function releaseHTMLV7() {
+  return `<div class="section-title"><h3>🧪 Personal Release Check</h3><button data-action="run-release-check-v7">Run again</button></div>
+    <div class="notice-card"><span class="notice-icon">🍓</span><span><strong>Personal-use readiness</strong><p>This checks local storage, IndexedDB, PWA registration, files and trip structure. It does not test Supabase because Ichigo does not use it yet.</p></span></div>
+    <div id="releaseCheckBodyV7" class="release-check-v7"><div class="storage-loading-v7">Running checks…</div></div>`;
+}
+
+async function runReleaseSelfTestV7(showToast=true) {
+  const host=document.querySelector("#releaseCheckBodyV7");
+  const checks=[];
+  const add=(name,pass,detail,warn=false)=>checks.push({name,pass,detail,warn});
+
+  try{
+    const key="ichigo-test-v7";localStorage.setItem(key,"ok");add("Structured data storage",localStorage.getItem(key)==="ok","localStorage read/write");localStorage.removeItem(key);
+  }catch(e){add("Structured data storage",false,e.message)}
+
+  try{
+    await IchigoDB.open();const s=await IchigoDB.stats();add("Local media database",true,`${s.count} files · ${formatBytesV7(s.bytes)}`);
+  }catch(e){add("Local media database",false,e.message)}
+
+  try{
+    const reg=await navigator.serviceWorker?.getRegistration?.();
+    add("PWA service worker",!!reg,reg?`${reg.active?"active":"registered"} · ${navigator.serviceWorker.controller?"page controlled":"reload once to control"}`:"not registered",!!reg&&!navigator.serviceWorker.controller);
+  }catch(e){add("PWA service worker",false,e.message)}
+
+  try{
+    const res=await fetch("./manifest.json",{cache:"no-store"});
+    add("Web app manifest",res.ok,`HTTP ${res.status||"cached"}`);
+  }catch(e){add("Web app manifest",false,"Unavailable offline or request failed",true)}
+
+  const ids=[];
+  state.trips.forEach(t=>["itinerary","places","bookings","packing","preTrip","expenses","memories","inbox"].forEach(k=>(t[k]||[]).forEach(x=>x.id&&ids.push(x.id))));
+  const duplicates=ids.filter((x,i)=>ids.indexOf(x)!==i);
+  add("Record IDs",duplicates.length===0,duplicates.length?`${new Set(duplicates).size} duplicate IDs found`:`${ids.length} IDs unique`);
+
+  const invalidDates=state.trips.filter(t=>!parseDate(t.startDate)||!parseDate(t.endDate)||parseDate(t.startDate)>parseDate(t.endDate));
+  add("Trip dates",!invalidDates.length,invalidDates.length?`${invalidDates.length} trip date range${invalidDates.length===1?"":"s"} need attention`:"Trip date ranges valid");
+
+  const refs=allReferencedFileKeysV7();
+  try{
+    const records=await IchigoDB.list(),existing=new Set(records.map(x=>x.id)),missing=[...refs].filter(x=>!existing.has(x));
+    add("Media references",!missing.length,missing.length?`${missing.length} referenced local file${missing.length===1?" is":"s are"} missing`:`${refs.size} referenced file keys resolved`,!!missing.length);
+  }catch(e){add("Media references",false,e.message,true)}
+
+  const stateBytes=new Blob([JSON.stringify(state)]).size;
+  add("Structured data size",stateBytes<4_000_000,`${formatBytesV7(stateBytes)} in localStorage`,stateBytes>=3_000_000);
+
+  const errors=JSON.parse(sessionStorage.getItem(ERROR_LOG_V7)||"[]");
+  add("Current-session errors",errors.length===0,errors.length?`${errors.length} captured error${errors.length===1?"":"s"} this session`:"No captured runtime errors",errors.length>0);
+
+  const passed=checks.filter(x=>x.pass).length;
+  if(host)host.innerHTML=`<div class="release-score-v7"><strong>${passed}/${checks.length}</strong><span>${passed===checks.length?"Ready for personal testing ✨":"Review the items below"}</span></div><div class="release-list-v7">${checks.map(c=>`<div class="${c.pass?(c.warn?"warn":"pass"):"fail"}"><span>${c.pass?(c.warn?"⚠️":"✓"):"✕"}</span><div><strong>${esc(c.name)}</strong><small>${esc(c.detail)}</small></div></div>`).join("")}</div><div class="release-foot-v7"><strong>Build ${APP_VERSION_V7}</strong><span>Schema ${APP_SCHEMA_VERSION_V7} · ${navigator.onLine?"Online":"Offline"}</span></div>`;
+  if(showToast)notify(`${passed}/${checks.length} personal release checks passed`);
+  return{passed,total:checks.length,checks};
+}
+
+/* ---------- App tour ---------- */
+function openTourV7() {
+  state.onboarding.build7Seen=true;save();
+  openModal("What's in Ichigo now",`<div class="tour-v7">
+    <div><span>🍓</span><h3>Smart Planner</h3><p>Select saved places and build a locally suggested day. Route estimates are helpers, not live transit.</p></div>
+    <div><span>📝</span><h3>Notes + Inbox</h3><p>Scratch ideas quickly, then convert them into real trip items later.</p></div>
+    <div><span>📖</span><h3>Your trip becomes a story</h3><p>Timeline, Food Diary, Highlights, Story Map and Scrapbook fill themselves from your data.</p></div>
+    <div><span>📴</span><h3>Local-first</h3><p>Core trip data and attachments stay on your device. Maps and fresh exchange rates still benefit from internet.</p></div>
+    <div><span>💾</span><h3>Back up before important trips</h3><p>Use full backup or per-trip export. Browser storage is convenient, but it should not be your only copy of precious travel memories.</p></div>
+  </div>`);
+}
+
+/* ---------- Trip navigation 6 + 7 ---------- */
+const tripHTMLBeforeV7 = tripHTML;
+tripHTML = function tripHTMLV7(v) {
+  if(v==="timeline")return timelineHTMLV7();
+  if(v==="food")return foodDiaryHTMLV7();
+  if(v==="highlights")return highlightsHTMLV7();
+  if(v==="visited")return visitedMapHTMLV7();
+  if(v==="offline")return offlineCenterHTMLV7();
+  if(v==="storage")return storageManagerHTMLV7();
+  if(v==="release")return releaseHTMLV7();
+  return tripHTMLBeforeV7(v);
+};
+
+renderTrip = function renderTripV7() {
+  const menu=[
+    ["memories","📸","Journal"],["timeline","🕰️","Timeline"],["food","🍜","Food Diary"],["highlights","⭐","Highlights"],
+    ["visited","🗺️","Story Map"],["scrapbook","📖","Scrapbook"],["recap","📊","Recap"],["health","💗","Health"],
+    ["stats","🌏","Stats"],["offline","📴","Offline"],["storage","💾","Storage"],["info","ℹ️","Trip Info"],
+    ["settings","⚙️","Settings"],["release","🧪","Release Check"]
+  ];
+  main.innerHTML=`<div class="page-head"><div><p class="eyebrow">TRIP</p><h1>${esc(trip().title)}</h1><p>Plan it · live it · remember it</p></div></div><div class="chips">${menu.map(([k,e,l])=>`<button class="chip ${state.tripView===k?"active":""}" data-action="set-trip-view" data-feature="${k}">${e} ${l}</button>`).join("")}</div><section class="section">${tripHTML(state.tripView)}</section>`;
+};
+
+/* Upgrade settings without discarding Build 4 controls. */
+const settingsHTMLBeforeV7 = settingsHTML;
+settingsHTML = function settingsHTMLV7() {
+  return `${settingsHTMLBeforeV7()}
+    <section class="card settings-card-v3"><div class="section-title"><h3>🍓 Personal Build 7 tools</h3></div><div class="btn-row wrap-v3"><button class="btn soft" data-action="open-tour-v7">App tour</button><button class="btn" data-action="customize-dashboard-v7">Dashboard</button><button class="btn" data-action="open-offline-v7">Offline Center</button><button class="btn" data-action="open-storage-v7">Storage Manager</button><button class="btn" data-action="open-release-v7">Release Check</button></div></section>`;
+};
+
+/* ---------- Search now includes notes ---------- */
+const searchIndexBeforeV7 = searchIndexV3;
+searchIndexV3 = function searchIndexNotesV7(query) {
+  const rows=searchIndexBeforeV7(query),q=String(query||"").trim().toLowerCase(),t=trip();
+  if(!q)return rows;
+  if(String(t.tripNotes||"").toLowerCase().includes(q))rows.push({kind:"tripnote",id:"trip-notes",title:"Trip Notes",detail:"Trip notebook"});
+  t.quickNotes.forEach(n=>{if(n.text.toLowerCase().includes(q))rows.push({kind:"scratch",id:n.id,title:n.text,detail:"Scratchpad"})});
+  return rows.slice(0,70);
+};
+
+const goToSearchBeforeV7 = goToSearchResultV3;
+goToSearchResultV3 = function goToSearchResultNotesV7(kind) {
+  if(kind==="tripnote"||kind==="scratch"){
+    state.currentView="plan";state.planView="notes";save();closeModal();render();return;
+  }
+  return goToSearchBeforeV7(kind);
+};
+
+/* ---------- Build 5/6/7 actions ---------- */
+document.addEventListener("click",async event=>{
+  const el=event.target.closest("[data-action]");if(!el)return;
+  const a=el.dataset.action,t=trip();
+
+  if(a==="undo-v7")undoV7();
+  if(a==="open-plan-day-v7")planMyDayModalV7(el.dataset.date||state.activeItineraryDate||activeDate());
+  if(a==="add-place-day-v7")addPlaceToDayV7(el.dataset.placeId,el.dataset.date||activeDate());
+  if(a==="optimize-route-v7")optimizeRouteV7(el.dataset.date||activeDate());
+  if(a==="push-later-v7")pushLaterModalV7(el.dataset.id);
+  if(a==="edit-day-budgets-v7")dayBudgetModalV7();
+
+  if(a==="toggle-favorite-v7"){
+    const kind=el.dataset.kind,id=el.dataset.id;
+    const item=kind==="place"?t.places.find(x=>x.id===id):kind==="activity"?t.itinerary.find(x=>x.id===id):t.memories.find(x=>x.id===id);
+    if(item){item.favorite=!item.favorite;if(kind==="memory")item.highlight=item.favorite;markChangedV7(`${item.favorite?"Favorited":"Unfavorited"} ${item.name||item.title||"item"}`,kind,id);render()}
+  }
+
+  if(a==="convert-inbox-v7")convertInboxV7(el.dataset.id,el.dataset.target);
+  if(a==="pin-scratch-v7"){const n=t.quickNotes.find(x=>x.id===el.dataset.id);if(n){n.pinned=!n.pinned;save();render()}}
+  if(a==="delete-scratch-v7"){if(confirm("Delete this scratch note?")){t.quickNotes=t.quickNotes.filter(x=>x.id!==el.dataset.id);save();render()}}
+  if(a==="scratch-to-inbox-v7"){const n=t.quickNotes.find(x=>x.id===el.dataset.id);if(n){t.inbox.push({id:uuid(),type:"Note",title:n.text.slice(0,80),note:n.text,url:"",fileKey:"",status:"inbox",createdAt:Date.now()});t.quickNotes=t.quickNotes.filter(x=>x.id!==n.id);markChangedV7("Moved scratch note to Inbox","inbox");render()}}
+
+  if(a==="memory-filter-v7"){state.memoryFilter=el.dataset.filter;save();render()}
+  if(a==="story-date-v7"){state.storyDate=el.dataset.date;save();render()}
+  if(a==="prompt-memory-v7")openModal("Journal Prompt",memoryFormHTMLV2({prompt:el.dataset.prompt||randomJournalPromptV7(),date:activeDate()}));
+
+  if(a==="customize-dashboard-v7")dashboardCustomizeModalV7();
+  if(a==="set-plan-view-home-v7"){state.currentView="plan";state.planView=el.dataset.feature;save();render()}
+  if(a==="set-spend-view-home-v7"){state.currentView="spend";state.spendView=el.dataset.feature;save();render()}
+  if(a==="go-today-v7"){state.currentView="today";save();render()}
+
+  if(a==="open-offline-v7"){state.currentView="trip";state.tripView="offline";save();render()}
+  if(a==="open-storage-v7"){state.currentView="trip";state.tripView="storage";save();render()}
+  if(a==="open-release-v7"){state.currentView="trip";state.tripView="release";save();render()}
+  if(a==="open-tour-v7")openTourV7();
+  if(a==="recovery-home-v7"){state.currentView="home";save();render()}
+
+  if(a==="prepare-offline-v7")await prepareOfflineV7();
+  if(a==="request-persistence-v7"){
+    if(!navigator.storage?.persist){notify("Persistent-storage requests aren't supported by this browser.");return}
+    const ok=await navigator.storage.persist().catch(()=>false);
+    notify(ok?"Browser granted persistent storage ✓":"The browser kept its normal storage policy.");
+  }
+  if(a==="clear-map-cache-v7"){
+    navigator.serviceWorker?.controller?.postMessage({type:"CLEAR_RUNTIME"});
+    notify("Runtime map/library cache clear requested.");
+  }
+
+  if(a==="delete-local-file-v7"){
+    const key=el.dataset.key,name=el.dataset.name||"file";
+    if(confirm(`Delete ${name} from local storage? Any Ichigo reference to this file will also be cleared.`)){
+      await IchigoDB.remove(key);clearFileKeyReferencesV7(key);save();renderStorageManagerV7();notify("Local file deleted");
+    }
+  }
+  if(a==="cleanup-orphans-v7")await cleanupOrphansV7();
+  if(a==="run-release-check-v7")await runReleaseSelfTestV7(true);
+});
+
+/* ---------- Build 5/6/7 forms ---------- */
+document.addEventListener("submit",async event=>{
+  const f=event.target;
+  if(!["activityFormV7","placeFormV7","memoryFormV7","planMyDayFormV7","pushLaterFormV7","dayBudgetsFormV7","tripNotesFormV7","scratchpadFormV7","dashboardFormV7"].includes(f.id))return;
+  event.preventDefault();
+  const fd=new FormData(f),d=Object.fromEntries(fd.entries()),t=trip();
+
+  if(f.id==="activityFormV7"){
+    const editId=f.dataset.editId||"",old=editId?t.itinerary.find(x=>x.id===editId):null,oldDate=old?.date,item=old||{id:uuid(),order:activitiesOn(d.date,t).length,completed:false,skipped:false};
+    if(old)pushUndoV7("activity edit");
+    const flexible=d.daypart!=="Fixed";
+    Object.assign(item,{date:d.date,time:flexible?(d.time||""):(d.time||""),daypart:d.daypart||"Fixed",duration:Number(d.duration||60),travelTime:Number(d.travelTime||0),estimatedCost:Number(d.estimatedCost||0),type:d.type,title:d.title.trim(),place:d.place.trim(),address:d.address.trim(),notes:d.notes.trim(),flexible,favorite:!!d.favorite,sourcePlaceId:d.sourcePlaceId||"",lat:d.lat?Number(d.lat):null,lng:d.lng?Number(d.lng):null});
+    if(!old)t.itinerary.push(item);
+    if(oldDate&&oldDate!==d.date){renumberDay(oldDate,t);item.order=activitiesOn(d.date,t).length}
+    renumberDay(d.date,t);state.activeItineraryDate=d.date;markChangedV7(`${old?"Updated":"Added"} activity: ${item.title}`,"activity",item.id);closeModal();state.currentView="plan";state.planView="itinerary";render();
+  }
+
+  if(f.id==="placeFormV7"){
+    const editId=f.dataset.editId||"",old=editId?t.places.find(x=>x.id===editId):null,item=old||{id:uuid(),votes:{},visited:false};
+    Object.assign(item,{name:d.name.trim(),area:d.area.trim(),category:d.category,priority:d.priority,favorite:!!d.favorite,openingHours:d.openingHours.trim(),estimatedDuration:Number(d.estimatedDuration||90),estimatedCost:Number(d.estimatedCost||0),address:d.address.trim(),lat:d.lat?Number(d.lat):null,lng:d.lng?Number(d.lng):null,mapUrl:d.mapUrl.trim(),reservationUrl:d.reservationUrl.trim(),tags:d.tags.split(",").map(x=>x.trim()).filter(Boolean),notes:d.notes.trim()});
+    if(!old)t.places.push(item);markChangedV7(`${old?"Updated":"Saved"} place: ${item.name}`,"place",item.id);closeModal();state.currentView="plan";state.planView="places";render();
+  }
+
+  if(f.id==="memoryFormV7"){
+    const editId=f.dataset.editId||"",old=editId?t.memories.find(x=>x.id===editId):null,item=old||{id:uuid(),photoKey:""};
+    const photo=f.querySelector('[name="photo"]');
+    if(photo?.files?.[0]){try{const blob=await IchigoDB.compressImage(photo.files[0],1600,.8);if(item.photoKey)await IchigoDB.remove(item.photoKey);item.photoKey=await IchigoDB.put(blob,{name:photo.files[0].name,kind:"memory"})}catch(error){logErrorV7(error,"memory-photo");notify("Photo couldn't be saved, but the journal note will be kept.")}}
+    Object.assign(item,{date:d.date,time:d.time||"",title:d.title.trim(),note:d.note.trim(),location:d.location.trim(),lat:d.lat?Number(d.lat):null,lng:d.lng?Number(d.lng):null,memoryType:d.memoryType||"Moment",prompt:d.prompt||"",favorite:!!d.favorite,highlight:!!d.favorite});
+    if(!old)t.memories.push(item);markChangedV7(`${old?"Updated":"Saved"} memory: ${item.title||item.memoryType}`,"memory",item.id);closeModal();state.currentView="trip";state.tripView="memories";render();
+  }
+
+  if(f.id==="planMyDayFormV7"){
+    const placeIds=fd.getAll("placeIds"),ok=buildDayFromPlacesV7({date:d.date,startTime:d.startTime||"09:00",pace:d.pace||"comfortable",replaceDay:!!d.replaceDay,placeIds});
+    if(ok){closeModal();state.currentView="plan";state.planView="itinerary";render();notify("Your smart day is ready 🍓")}
+  }
+
+  if(f.id==="pushLaterFormV7"){applyPushLaterV7(f.dataset.id,Number(d.minutes||15));closeModal();render();notify("Later activities shifted")}
+
+  if(f.id==="dayBudgetsFormV7"){
+    allDates(t).forEach(date=>t.dayBudgets[date]=Number(d[`day_${date}`]||0));markChangedV7("Updated daily budgets","budget");closeModal();render();notify("Day budgets saved");
+  }
+
+  if(f.id==="tripNotesFormV7"){t.tripNotes=d.notes.trim();markChangedV7("Updated Trip Notes","note");render();notify("Trip Notes saved")}
+
+  if(f.id==="scratchpadFormV7"){t.quickNotes.push({id:uuid(),text:d.text.trim(),pinned:false,createdAt:Date.now()});markChangedV7("Added scratch note","note");f.reset();render()}
+
+  if(f.id==="dashboardFormV7"){state.settings.dashboardWidgets=fd.getAll("widgets");save();closeModal();render();notify("Dashboard updated")}
+});
+
+/* ---------- Recently changed: observe common existing edits ---------- */
+const recentActionLabelsV7={
+  "complete-activity-v3":"Changed activity completion",
+  "arrived-v3":"Marked arrival",
+  "archive-inbox-v3":"Changed Inbox status",
+  "toggle-pack":"Updated packing",
+  "toggle-task":"Updated Before You Go",
+  "mark-visited":"Updated visited place"
+};
+document.addEventListener("click",event=>{
+  const el=event.target.closest("[data-action]"),label=recentActionLabelsV7[el?.dataset.action];
+  if(!label)return;
+  setTimeout(()=>{try{markChangedV7(label,el.dataset.action,el.dataset.id||"")}catch{}},120);
+});
+
+/* ---------- Build 7 startup ---------- */
+migrateAllTripsV7(true);
 applyLaunchShortcut();
 applyAppearanceV3();
 save();

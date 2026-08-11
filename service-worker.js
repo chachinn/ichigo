@@ -1,14 +1,17 @@
-/* Ichigo Build 4 — Offline App Shell */
-const CACHE_NAME = "ichigo-build4-1-icon-refresh-v1";
+/* Ichigo Build 7 — Personal Release-Ready Offline Layer */
+const CACHE_NAME = "ichigo-build7-app-v1";
+const RUNTIME_CACHE = "ichigo-build7-runtime-v1";
+const TILE_CACHE = "ichigo-build7-maptiles-v1";
+
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./style.css",
-  "./app.js",
-  "./data/data.js",
-  "./data/db.js",
+  "./style.css?v=20260811-build7",
+  "./app.js?v=20260811-build7",
+  "./data/data.js?v=20260811-build7",
+  "./data/db.js?v=20260811-build7",
   "./manifest.json",
-  "./manifest.json?v=20260811-build41-iconrefresh",
+  "./manifest.json?v=20260811-build7",
   "./icons/apple-touch-icon-v41.png",
   "./icons/icon-192-v41.png",
   "./icons/icon-512-v41.png",
@@ -19,6 +22,7 @@ self.addEventListener("install", event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => cache.addAll(APP_SHELL))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -26,78 +30,98 @@ self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys()
       .then(keys => Promise.all(
-        keys.filter(key => key.startsWith("ichigo-") && key !== CACHE_NAME)
-            .map(key => caches.delete(key))
+        keys.filter(key => key.startsWith("ichigo-") && ![CACHE_NAME,RUNTIME_CACHE,TILE_CACHE].includes(key))
+          .map(key => caches.delete(key))
       ))
       .then(() => self.clients.claim())
       .then(async () => {
-        const clients = await self.clients.matchAll({ type: "window" });
-        clients.forEach(client => client.postMessage({ type: "ICHIGO_SW_ACTIVATED", cache: CACHE_NAME }));
+        const clients = await self.clients.matchAll({type:"window"});
+        clients.forEach(client => client.postMessage({type:"ICHIGO_SW_ACTIVATED",cache:CACHE_NAME}));
       })
   );
 });
 
+async function trimCache(name,maxEntries) {
+  const cache=await caches.open(name);
+  const keys=await cache.keys();
+  if(keys.length<=maxEntries)return;
+  await Promise.all(keys.slice(0,keys.length-maxEntries).map(k=>cache.delete(k)));
+}
+
+async function cacheResponse(cacheName,request,response) {
+  if(!response || (!response.ok && response.type!=="opaque")) return response;
+  const cache=await caches.open(cacheName);
+  await cache.put(request,response.clone());
+  return response;
+}
+
 self.addEventListener("fetch", event => {
-  if (event.request.method !== "GET") return;
+  if(event.request.method!=="GET")return;
+  const url=new URL(event.request.url);
+  const sameOrigin=url.origin===self.location.origin;
 
-  const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return;
+  if(sameOrigin){
+    const isIcon=url.pathname.includes("/icons/");
+    const isManifest=url.pathname.endsWith("/manifest.json");
 
-  const isIcon = url.pathname.includes("/icons/");
-  const isManifest = url.pathname.endsWith("/manifest.json");
+    if(isIcon||isManifest){
+      event.respondWith(
+        fetch(event.request)
+          .then(r=>cacheResponse(CACHE_NAME,event.request,r))
+          .catch(async()=>await caches.match(event.request)||await caches.match(event.request,{ignoreSearch:true}))
+      );
+      return;
+    }
 
-  /* Icons and manifest are network-first so iOS is less likely to keep
-     an old Home Screen icon after an update. */
-  if (isIcon || isManifest) {
+    if(event.request.mode==="navigate"){
+      event.respondWith(
+        fetch(event.request)
+          .then(async r=>{await cacheResponse(CACHE_NAME,new Request("./index.html"),r.clone());return r})
+          .catch(async()=>await caches.match("./index.html")||await caches.match("./"))
+      );
+      return;
+    }
+
     event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          if (response && response.status === 200) {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
-          }
-          return response;
-        })
-        .catch(async () => {
-          return (await caches.match(event.request)) ||
-                 (await caches.match(event.request, { ignoreSearch: true }));
-        })
+      caches.match(event.request).then(cached=>{
+        if(cached)return cached;
+        return fetch(event.request).then(r=>cacheResponse(CACHE_NAME,event.request,r));
+      })
     );
     return;
   }
 
-  /* Navigations are network-first with an offline fallback. */
-  if (event.request.mode === "navigate") {
+  /* Keep the Leaflet library available after it has loaded online once. */
+  if(url.hostname==="unpkg.com"){
     event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put("./index.html", copy));
-          return response;
-        })
-        .catch(() => caches.match("./index.html"))
+      caches.open(RUNTIME_CACHE).then(async cache=>{
+        const cached=await cache.match(event.request);
+        const network=fetch(event.request).then(async r=>{if(r.ok||r.type==="opaque")await cache.put(event.request,r.clone());return r}).catch(()=>null);
+        return cached || await network || new Response("",{status:504,statusText:"Offline"});
+      })
     );
     return;
   }
 
-  /* Other local app assets are cache-first. */
-  event.respondWith(
-    caches.match(event.request).then(cached => {
-      if (cached) return cached;
-
-      return fetch(event.request).then(response => {
-        if (!response || response.status !== 200 || response.type === "opaque") {
-          return response;
-        }
-
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
-        return response;
-      });
-    })
-  );
+  /* Map tiles are opportunistic, bounded runtime cache—not a promise that an
+     entire city is downloadable. */
+  if(url.hostname==="tile.openstreetmap.org"){
+    event.respondWith(
+      fetch(event.request)
+        .then(async r=>{await cacheResponse(TILE_CACHE,event.request,r);trimCache(TILE_CACHE,120);return r})
+        .catch(async()=>await caches.match(event.request)||new Response("",{status:504,statusText:"Offline tile"}))
+    );
+  }
 });
 
 self.addEventListener("message", event => {
-  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+  if(event.data?.type==="SKIP_WAITING")self.skipWaiting();
+
+  if(event.data?.type==="CLEAR_RUNTIME"){
+    event.waitUntil(Promise.all([caches.delete(RUNTIME_CACHE),caches.delete(TILE_CACHE)]));
+  }
+
+  if(event.data?.type==="WARM_SHELL"){
+    event.waitUntil(caches.open(CACHE_NAME).then(cache=>cache.addAll(APP_SHELL)));
+  }
 });
