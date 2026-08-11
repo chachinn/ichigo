@@ -5,15 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#ff6f91">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Ichigo">
   <meta name="description" content="Ichigo — Plan sweet little adventures.">
   <title>Ichigo 🍓</title>
-  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
-  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
-  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
-  <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="style.css">
+  <!-- iPhone / iPad Home Screen icon. Version query forces iOS to fetch the new icon. -->
+  <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=20260811-iconfix1">
+  <link rel="apple-touch-icon-precomposed" sizes="180x180" href="./icons/apple-touch-icon.png?v=20260811-iconfix1">
+
+  <!-- Browser / PWA icons -->
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png?v=20260811-iconfix1">
+  <link rel="icon" type="image/png" sizes="512x512" href="./icons/icon-512.png?v=20260811-iconfix1">
+
+  <!-- Cache-busted manifest so Safari re-reads the current icon list. -->
+  <link rel="manifest" href="./manifest.json?v=20260811-iconfix1">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="./style.css">
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -58,6 +66,9 @@
     </div>
   </template>
 
-  <script src="app.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="./data/data.js"></script>
+  <script src="./data/db.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
