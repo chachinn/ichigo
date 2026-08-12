@@ -5674,21 +5674,297 @@ renderHome=function renderHomePlayfulV9(){
 };
 
 /* ---------- What's New ---------- */
-ICHIGO_WHATS_NEW_V74.version=APP_VERSION_V9;
+ICHIGO_WHATS_NEW_V74.version=APP_VERSION_V91;
 ICHIGO_WHATS_NEW_V74.items=[
-  "Added a full Fun & Discover section to the hamburger.",
-  "Added Adventure Jar, Backup Plans and Neighborhood Bundles.",
-  "Added Trip Bingo, Photo Missions, Food Passport and Stamp Book.",
-  "Added Trip Capsule, Travel Awards and derived Tiny Achievements.",
-  "The empty hamburger now previews real Ichigo sections before you create a trip."
+  "Fixed the hamburger so every visible section is clickable.",
+  "Explore mode now opens the exact section you tapped instead of a generic tab preview.",
+  "Added clean empty previews for every planning, money, memory, fun and app section.",
+  "Added a navigation integrity check to catch broken route definitions.",
+  "No sample trip data was added."
 ];
+
+
+
+/* =====================================================================
+   ICHIGO 9.1 — HAMBURGER NAVIGATION INTEGRITY FIX
+   Rule: if a section is visible in the hamburger, it must open.
+   ===================================================================== */
+
+const APP_VERSION_V91 = "9.1.0";
+const CACHE_VERSION_V91 = "ichigo-build9-1-navfix-v1";
+
+function routeIntegrityV91() {
+  const problems=[];
+  const seen=new Set();
+
+  ROUTES_V8.forEach(route=>{
+    if(seen.has(route.id))problems.push(`Duplicate route id: ${route.id}`);
+    seen.add(route.id);
+
+    if(!["home","plan","today","spend","together","trip"].includes(route.view)){
+      problems.push(`Unknown view for ${route.id}: ${route.view}`);
+    }
+    if(route.view==="plan" && !PLAN_META_V8[route.sub])problems.push(`Missing Plan metadata: ${route.id}`);
+    if(route.view==="spend" && !SPEND_META_V8[route.sub])problems.push(`Missing Spend metadata: ${route.id}`);
+    if(route.view==="trip" && !TRIP_META_V8[route.sub])problems.push(`Missing Trip metadata: ${route.id}`);
+  });
+
+  return {ok:problems.length===0,problems,count:ROUTES_V8.length};
+}
+
+function exploreMetaV91(route) {
+  if(!route)return {icon:"🍓",title:"Ichigo",copy:"Explore Ichigo before creating your first trip."};
+
+  if(route.view==="plan" && PLAN_META_V8[route.sub]){
+    const [icon,title,copy]=PLAN_META_V8[route.sub];
+    return {icon,title,copy};
+  }
+  if(route.view==="spend" && SPEND_META_V8[route.sub]){
+    const [icon,title,copy]=SPEND_META_V8[route.sub];
+    return {icon,title,copy};
+  }
+  if(route.view==="trip" && TRIP_META_V8[route.sub]){
+    const [icon,title,copy]=TRIP_META_V8[route.sub];
+    return {icon,title,copy};
+  }
+
+  const generic={
+    home:["⌂","Home","Your trip command center, quick actions and travel shelf."],
+    today:["🍓","Today Mode","A focused travel-day view for plans, spending and memories."],
+    together:["👥","Travel Together","Optional traveler, voting and shared-expense tools."],
+    plan:["▣","Planning","Itinerary, places, bookings, checklists and smart planning."],
+    spend:["◉","Money","Budgets, expenses, analytics and currency tools."],
+    trip:["▤","Trip & Memories","Journal, scrapbook, recap and personal trip tools."]
+  };
+  const [icon,title,copy]=generic[route.view]||generic.home;
+  return {icon,title,copy};
+}
+
+function exploreFeatureDetailsV91(routeId) {
+  const details={
+    itinerary:["Build days with fixed or flexible activities.","Add times, places, duration, notes, expected costs and travel buffers.","Reorder, duplicate, move and adjust activities later."],
+    smart:["Use only the places you personally saved.","Suggest a local route order from saved coordinates.","Check distance, budget and schedule warnings."],
+    dayboard:["Give each travel day its own title and mood.","Keep wake-up, return time, outfit and weather notes.","Use it as a tiny command board for the day."],
+    places:["Save cafés, restaurants, shops and attractions.","Add priority, hours, coordinates, tags and expected spend.","Mark places visited and turn them into Stamp Book entries."],
+    map:["See saved and planned places on a map.","Saved coordinates stay with your trip.","Map backgrounds may need internet unless previously cached."],
+    reservationboard:["See upcoming reservations by date.","Highlight confirmations and items needing review.","Open the original booking entry for full details."],
+    bookings:["Keep flights, hotels, restaurant reservations and tickets.","Store confirmation numbers, dates, links and local attachments.","Nothing is added unless you create it."],
+    checklists:["Combine packing, pre-trip tasks and custom lists.","See what is still unfinished in one place.","Progress is calculated from your actual entries."],
+    packing:["Build your own packing checklist.","Use quantities and categories.","Save reusable packing templates if you want."],
+    before:["Track visa, insurance, SIM, documents and other prep tasks.","Set due dates, priorities and notes.","Starts completely empty."],
+    lists:["Create souvenir, food, photo, shopping or custom lists.","Templates create an empty structure only.","Add costs, notes, favorites and completion status."],
+    inbox:["Capture random travel ideas before organizing them.","Save links, notes and screenshots.","Convert captures into real trip items later."],
+    notes:["Keep general Trip Notes separate from quick Scratchpad ideas.","Search both later.","Nothing is pre-written."],
+    timezones:["Add only the clocks you care about.","Use standard IANA time zones.","No city is added automatically."],
+    essentials:["Keep hotel details, emergency contacts, documents and phrases offline.","Store local files in the document vault.","Your information stays on this device."],
+    jar:["Add your own little possibilities to the Adventure Jar.","Let Ichigo randomly pick from your unfinished ideas.","No fake suggestions are ever inserted."],
+    backup:["Create rainy-day, low-energy and sold-out alternatives.","Keep Plan B ideas separate from the main itinerary.","Use them only when you choose."],
+    neighborhoods:["Group saved places into small area bundles.","Useful when you are already nearby and want more options.","Bundles only contain places you select."],
+
+    budget:["Set overall, category and day budgets.","Compare expected and actual spending.","See what remains without entering fake expenses."],
+    expenses:["Record merchant, category, payment method and notes.","Attach receipt photos locally.","Entries are always user-created."],
+    analytics:["See spending by day and payment method.","Calculate biggest expenses and projected spend.","Analytics appear only after you add real expenses."],
+    converter:["Convert currencies with a calculator-style tool.","Refresh rates online or use saved fallback rates offline.","Choose the currencies you want."],
+    split:["Optionally divide expenses between travelers.","Track who paid and who owes whom.","Travelers start empty."],
+
+    memories:["Save photos, notes, location and memory type.","Favorite the moments you care about.","Your travel journal starts blank."],
+    timeline:["Combine itinerary, expenses and memories chronologically.","View each travel day as one story.","Built entirely from data you created."],
+    food:["Gather food memories and food expenses by day.","Use it as a simple food diary.","Only your real entries appear."],
+    highlights:["Collect favorite places, activities and memories.","Acts like a personal best-of-the-trip page.","Favorites are chosen by you."],
+    visited:["Map visited places and mapped memories.","Coordinates come from your saved entries.","No pretend visited locations."],
+    scrapbook:["Turn each travel day into a scrapbook page.","Combine plans, spending, photos and notes.","Pages fill themselves from your own trip."],
+    recap:["See final trip stats, spending and favorites.","Review completed activities and highlights.","Designed for after the trip."],
+    bingo:["Create every bingo square yourself.","Tap squares as moments happen.","No pre-filled challenges."],
+    photomissions:["Make your own playful photo challenges.","Mark each mission done when you get the shot.","Starts with zero missions."],
+    foodpassport:["Collect foods and places you actually tried.","Add rating, date, note and favorite status.","Starts completely empty."],
+    stamps:["Visited saved places become collectible stamps automatically.","No extra stamp data entry required.","The collection grows only when you mark places visited."],
+    capsule:["Write a before-trip note and an after-trip note.","Use it as a tiny message across time.","Both sides start blank."],
+    awards:["Create your own funny or sentimental trip awards.","Choose the winner and write a note.","Nothing is suggested unless you add it."],
+    achievements:["Tiny milestones are derived from real usage.","They never create trip data.","Examples include first memory, five visited places and high Trip Health."],
+    health:["Check schedule, packing, booking, budget and readiness gaps.","Warnings point back to the relevant section.","The score uses your actual trip data."],
+    stats:["Build a personal travel history from your completed trips.","See travel days, destinations, visits and memories.","Stats remain empty until you travel."],
+    info:["Edit trip name, destination, dates, currencies and cover.","Archive or export the current trip.","No hidden trip metadata is invented."],
+    offline:["See what works without internet.","Prepare the core app shell before travel.","Maps and fresh rates may still need connectivity."],
+    storage:["Review local photos, receipts, tickets and documents.","Find large or unused media.","Delete files intentionally when you need space."],
+    settings:["Customize navigation, quick actions, theme, currencies and app behavior.","Manage backups, updates and advanced diagnostics.","Preferences start neutral and editable."],
+    together:["Add travelers only if you want shared tools.","Use local group picks and expense splitting.","No default people are added."],
+    home:["See trip countdown, budget, checklist progress and next plans.","Use Quick Add and jump into important tools.","Your shelf only contains trips you created."],
+    today:["Focus on the current and next activity.","Quickly mark done, delay, add spending or save memories.","Before a trip exists, this remains a clean preview."]
+  };
+  return details[routeId]||[
+    "This section is part of Ichigo's travel workflow.",
+    "It remains empty until you add your own information.",
+    "Create a trip whenever you're ready to use it."
+  ];
+}
+
+function renderSpecificExploreRouteV91(routeId) {
+  const route=routeByIdV8(routeId)||routeByIdV8("home");
+  const meta=exploreMetaV91(route);
+  const details=exploreFeatureDetailsV91(route.id);
+
+  document.body.classList.remove("fresh-mode-v72");
+  document.body.classList.add("explore-mode-v73");
+
+  main.innerHTML=`
+    <section class="explore-route-v91">
+      <div class="explore-route-hero-v91">
+        <span>${meta.icon}</span>
+        <div>
+          <p class="eyebrow">EXPLORE ICHIGO</p>
+          <h1>${esc(meta.title)}</h1>
+          <p>${esc(meta.copy)}</p>
+        </div>
+      </div>
+
+      <div class="explore-route-points-v91">
+        ${details.map((text,index)=>`<article><span>${["01","02","03"][index]||"•"}</span><p>${esc(text)}</p></article>`).join("")}
+      </div>
+
+      <div class="explore-route-empty-v91">
+        <span>${meta.icon}</span>
+        <div><strong>This section is empty by design.</strong><p>Ichigo won't add sample entries just to make the screen look busy.</p></div>
+      </div>
+
+      <div class="explore-route-actions-v91">
+        <button class="btn primary" data-action="new-trip">＋ Create your first trip</button>
+        <button class="btn soft" data-action="open-drawer-v8">☰ Explore another section</button>
+      </div>
+    </section>`;
+
+  updateOnline();
+}
+
+/* Every visible drawer item is a real button, even before a trip exists. */
+const drawerHTMLBeforeV91=drawerHTMLV8;
+drawerHTMLV8=function drawerHTMLNavigationFixedV91(){
+  const hasTrip=!!(state.trips||[]).length;
+  if(hasTrip)return drawerHTMLBeforeV91();
+
+  const groups=[...new Set(ROUTES_V8.map(x=>x.group))];
+
+  return `<div class="drawer-backdrop-v8 ${drawerOpenV8?"open":""}" data-action="close-drawer-v8"></div>
+    <aside class="drawer-v8 ${drawerOpenV8?"open":""}" aria-label="Ichigo menu">
+      <div class="drawer-head-v8">
+        <img src="./icons/icon-192-v41.png" alt="">
+        <div><strong>ichigo</strong><small>Explore every section</small></div>
+        <button class="icon-btn" data-action="close-drawer-v8" aria-label="Close menu">✕</button>
+      </div>
+
+      <div class="drawer-utilities-v8">
+        <button data-action="navigate-explore-route-v91" data-route="home">⌂ Explore Home</button>
+        <button data-action="new-trip">＋ Create Trip</button>
+      </div>
+
+      <div class="drawer-scroll-v8">
+        <section class="drawer-explore-note-v91">
+          <span>🍓</span>
+          <div><strong>Everything below opens.</strong><p>Feature screens are previews until you create your own trip.</p></div>
+        </section>
+
+        ${groups.map(group=>`<section class="drawer-group-v8">
+          <h3>${esc(group)}</h3>
+          ${ROUTES_V8.filter(x=>x.group===group).map(route=>`
+            <div class="drawer-route-row-v8 ${state.exploreRouteV91===route.id?"active":""}">
+              <button type="button" class="drawer-route-v8" data-action="navigate-explore-route-v91" data-route="${route.id}">
+                <span>${route.icon}</span><strong>${esc(route.label)}</strong><em class="drawer-open-arrow-v91">›</em>
+              </button>
+            </div>`).join("")}
+        </section>`).join("")}
+
+        ${aboutIchigoCardV74(true)}
+      </div>
+
+      <div class="drawer-footer-v8">
+        <button data-action="show-whats-new-v74">What’s New</button>
+        <button data-action="install-app">Install</button>
+        <span>${navigator.onLine?"● Online":"○ Offline"} · v${APP_VERSION_V91}</span>
+      </div>
+    </aside>`;
+};
+
+/* Route navigation now preserves the exact selected section in Explore mode. */
+navigateV8=function navigateRouteFixedV91(routeId,{closeDrawer=true}={}){
+  const route=routeByIdV8(routeId);
+  if(!route){
+    notify("That Ichigo section could not be found.");
+    return;
+  }
+
+  if(!(state.trips||[]).length){
+    exploreModeV73=true;
+    state.exploreRouteV91=route.id;
+    state.currentView=route.view;
+    save();
+    if(closeDrawer)closeDrawerV8();
+    render();
+    return;
+  }
+
+  state.exploreRouteV91="";
+  state.currentView=route.view;
+  if(route.view==="plan")state.planView=route.sub;
+  if(route.view==="spend")state.spendView=route.sub;
+  if(route.view==="trip")state.tripView=route.sub;
+  save();
+  if(closeDrawer)closeDrawerV8();
+  render();
+};
+
+/* Final Explore renderer: exact hamburger route wins over generic previews. */
+const renderExploreBeforeV91=renderExploreV73;
+renderExploreV73=function renderExploreExactV91(){
+  const routeId=state.exploreRouteV91;
+  if(routeId && routeByIdV8(routeId)){
+    renderSpecificExploreRouteV91(routeId);
+    return;
+  }
+  renderExploreBeforeV91();
+};
+
+document.addEventListener("click",event=>{
+  const el=event.target.closest('[data-action="navigate-explore-route-v91"]');
+  if(!el)return;
+  event.preventDefault();
+  event.stopPropagation();
+  exploreModeV73=true;
+  state.exploreRouteV91=el.dataset.route||"home";
+  const route=routeByIdV8(state.exploreRouteV91);
+  state.currentView=route?.view||"home";
+  save();
+  closeDrawerV8();
+  render();
+},true);
+
+/* Hamburger routing guard: catch any visible route button before older
+   listeners can interfere. */
+document.addEventListener("click",event=>{
+  const el=event.target.closest('.drawer-v8 [data-action="navigate-route-v8"]');
+  if(!el)return;
+  event.preventDefault();
+  event.stopPropagation();
+  navigateV8(el.dataset.route);
+},true);
+
+function navigationDiagnosticsV91(){
+  const audit=routeIntegrityV91();
+  const routeIds=ROUTES_V8.map(x=>x.id);
+  const clickableIds=new Set(routeIds);
+  return {
+    version:APP_VERSION_V91,
+    routes:audit.count,
+    valid:audit.ok,
+    problems:audit.problems,
+    clickable:[...clickableIds]
+  };
+}
 
 
 /* ---------- Ichigo 9 startup ---------- */
 const previousAppVersionV9 = state.appVersion || "";
 const legacyDemoRemovedV71 = cleanLegacyDemoV71();
 migrateAllTripsV9(true);
-state.appVersion = APP_VERSION_V9;
+state.appVersion = APP_VERSION_V91;
 
 if (state.trips.length) {
   applyLaunchShortcut();
@@ -5704,13 +5980,13 @@ setupServiceWorkerUpdatesV3();
 
 const lastSeenVersionV9 = localStorage.getItem("ichigo-last-seen-app-version");
 if (!lastSeenVersionV9) {
-  if (previousAppVersionV9 && previousAppVersionV9 !== APP_VERSION_V9) {
+  if (previousAppVersionV9 && previousAppVersionV9 !== APP_VERSION_V91) {
     localStorage.setItem("ichigo-last-seen-app-version",previousAppVersionV9);
     setTimeout(()=>showWhatsNewV74(false),500);
   } else {
-    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V9);
+    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V91);
   }
-} else if (lastSeenVersionV9 !== APP_VERSION_V9) {
+} else if (lastSeenVersionV9 !== APP_VERSION_V91) {
   setTimeout(()=>showWhatsNewV74(false),500);
 }
 

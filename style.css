@@ -550,3 +550,42 @@ body.explore-mode-v73 .menu-btn-v8{display:grid!important}
   .bingo-grid-v9,.stamp-grid-v9{grid-template-columns:repeat(2,1fr)}
   .drawer-explore-grid-v9,.drawer-fun-preview-v9{grid-template-columns:1fr 1fr}
 }
+
+
+/* =====================================================================
+   ICHIGO 9.1 — NAVIGATION INTEGRITY
+   ===================================================================== */
+.drawer-route-row-v8>.drawer-route-v8{width:100%}
+.drawer-route-row-v8:has(.drawer-route-v8:active){transform:scale(.995)}
+.drawer-open-arrow-v91{justify-self:end;color:var(--muted);font-style:normal;font-size:17px}
+.drawer-explore-note-v91{margin:8px 2px 12px;border:1px solid #ffd4de;border-radius:16px;background:#fff5f7;padding:10px;display:grid;grid-template-columns:30px 1fr;gap:8px;align-items:center}
+.drawer-explore-note-v91>span{font-size:21px}
+.drawer-explore-note-v91 strong{font-size:9px}
+.drawer-explore-note-v91 p{margin:2px 0 0;color:var(--muted);font-size:7px;line-height:1.4}
+
+.explore-route-v91{max-width:720px;margin:0 auto}
+.explore-route-hero-v91{border:1px solid var(--line);border-radius:27px;background:linear-gradient(145deg,#fff,#fff0f4);padding:20px;display:grid;grid-template-columns:72px 1fr;gap:15px;align-items:center;box-shadow:var(--shadow)}
+.explore-route-hero-v91>span{width:72px;height:72px;border-radius:21px;background:#fff;display:grid;place-items:center;font-size:37px;border:1px solid var(--line)}
+.explore-route-hero-v91 h1{margin:3px 0 5px;font-size:27px}
+.explore-route-hero-v91 p:last-child{margin:0;color:var(--muted);font-size:10px;line-height:1.5}
+
+.explore-route-points-v91{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.explore-route-points-v91 article{border:1px solid var(--line);border-radius:17px;background:#fff;padding:13px;min-height:105px}
+.explore-route-points-v91 article>span{display:inline-block;border-radius:999px;background:#fff0f4;color:var(--pink2);padding:4px 7px;font-size:7px;font-weight:900}
+.explore-route-points-v91 article p{margin:9px 0 0;color:var(--muted);font-size:9px;line-height:1.5}
+
+.explore-route-empty-v91{border:1px dashed #efcbd5;border-radius:18px;background:#fffafa;padding:14px;display:grid;grid-template-columns:38px 1fr;gap:9px;align-items:center}
+.explore-route-empty-v91>span{font-size:28px}
+.explore-route-empty-v91 strong{font-size:10px}
+.explore-route-empty-v91 p{margin:2px 0 0;color:var(--muted);font-size:8px}
+.explore-route-actions-v91{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+
+@media(max-width:560px){
+  .explore-route-points-v91{grid-template-columns:1fr}
+  .explore-route-points-v91 article{min-height:auto}
+}
+@media(max-width:390px){
+  .explore-route-hero-v91{grid-template-columns:55px 1fr;padding:15px}
+  .explore-route-hero-v91>span{width:55px;height:55px;border-radius:17px;font-size:29px}
+  .explore-route-hero-v91 h1{font-size:22px}
+}
