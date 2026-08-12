@@ -1,3 +1,7 @@
+/* Ichigo Recovery Build 9.2 — canonical runtime version. */
+const ICHIGO_CURRENT_VERSION = "9.2.0";
+const ICHIGO_CURRENT_SCHEMA = 9;
+
 /* ==========================================================
    ICHIGO BUILD 1
    Local-first travel planner. No backend required.
@@ -3742,7 +3746,7 @@ settingsHTML = function settingsHTMLV7() {
   return `${settingsHTMLBeforeV7()}
     ${aboutIchigoCardV74()}
     <section class="card settings-card-v3 about-version-card-v74">
-      <div class="section-title"><h3>🌸 About & updates</h3><span class="badge gray">v${esc(APP_VERSION_V8)}</span></div>
+      <div class="section-title"><h3>🌸 About & updates</h3><span class="badge gray">v${esc(ICHIGO_CURRENT_VERSION)}</span></div>
       <p class="meta">Ichigo will show an update banner when a newer GitHub Pages build is waiting to be installed.</p>
       <div class="btn-row wrap-v3"><button class="btn soft" data-action="show-whats-new-v74">What’s New</button><button class="btn" data-action="force-update-check-v3">Check for update</button></div>
     </section>
@@ -4242,7 +4246,7 @@ document.addEventListener("click",event=>{
   }
 
   if(el.dataset.action==="dismiss-whats-new-v74"){
-    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V8);
+    localStorage.setItem("ichigo-last-seen-app-version",ICHIGO_CURRENT_VERSION);
     closeModal();
   }
 });
@@ -4283,7 +4287,7 @@ function whatsNewHTMLV74() {
     <div class="whats-new-icon-v74"><img src="./icons/icon-192-v41.png" alt=""></div>
     <p class="eyebrow">ICHIGO UPDATED</p>
     <h2>${esc(ICHIGO_WHATS_NEW_V74.title)}</h2>
-    <p class="whats-new-version-v74">${esc(APP_VERSION_V8)}</p>
+    <p class="whats-new-version-v74">${esc(ICHIGO_CURRENT_VERSION)}</p>
     <div class="whats-new-list-v74">
       ${ICHIGO_WHATS_NEW_V74.items.map(x=>`<div><span>🍓</span><p>${esc(x)}</p></div>`).join("")}
     </div>
@@ -4293,11 +4297,11 @@ function whatsNewHTMLV74() {
 
 function showWhatsNewV74(force=false) {
   const seen=localStorage.getItem("ichigo-last-seen-app-version");
-  if(!force && (!seen || seen===APP_VERSION_V8)) {
-    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V8);
+  if(!force && (!seen || seen===ICHIGO_CURRENT_VERSION)) {
+    localStorage.setItem("ichigo-last-seen-app-version",ICHIGO_CURRENT_VERSION);
     return;
   }
-  localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V8);
+  localStorage.setItem("ichigo-last-seen-app-version",ICHIGO_CURRENT_VERSION);
   if(modalRoot?.firstElementChild)return;
   openModal("Ichigo updated",whatsNewHTMLV74());
 }
@@ -4659,7 +4663,7 @@ function drawerHTMLV8(){
         <div class="drawer-footer-v8">
           <button data-action="show-whats-new-v74">What’s New</button>
           <button data-action="install-app">Install</button>
-          <span>${navigator.onLine?"● Online":"○ Offline"} · v${APP_VERSION_V8}</span>
+          <span>${navigator.onLine?"● Online":"○ Offline"} · v${ICHIGO_CURRENT_VERSION}</span>
         </div>
       </aside>`;
   }
@@ -4685,7 +4689,7 @@ function drawerHTMLV8(){
       <div class="drawer-footer-v8">
         <button data-action="force-update-check-v3">Check Update</button>
         <button data-action="install-app">Install</button>
-        <span>${navigator.onLine?"● Online":"○ Offline"} · v${APP_VERSION_V8}</span>
+        <span>${navigator.onLine?"● Online":"○ Offline"} · v${ICHIGO_CURRENT_VERSION}</span>
       </div>
     </aside>`;
 }
@@ -5020,7 +5024,7 @@ settingsHTML=function settingsHTMLV8(){
     </section>
 
     ${aboutIchigoCardV74()}
-    <section class="card settings-card-v3"><div class="section-title"><h3>About & updates</h3><span class="badge gray">v${APP_VERSION_V8}</span></div><div class="btn-row wrap-v3"><button class="btn soft" data-action="show-whats-new-v74">What’s New</button><button class="btn" data-action="force-update-check-v3">Check for update</button><button class="btn" data-action="install-app">Install Ichigo</button></div></section>
+    <section class="card settings-card-v3"><div class="section-title"><h3>About & updates</h3><span class="badge gray">v${ICHIGO_CURRENT_VERSION}</span></div><div class="btn-row wrap-v3"><button class="btn soft" data-action="show-whats-new-v74">What’s New</button><button class="btn" data-action="force-update-check-v3">Check for update</button><button class="btn" data-action="install-app">Install Ichigo</button></div></section>
 
     <details class="card advanced-settings-v8"><summary>Advanced</summary><div class="advanced-settings-body-v8"><p class="meta">Recovery and diagnostics are kept here so normal travel screens stay clean.</p><div class="btn-row wrap-v3"><button class="btn" data-action="run-selftest-v3">Run diagnostics</button><button class="btn" data-action="copy-diagnostics-v3">Copy diagnostics</button><button class="btn" data-action="clear-caches-v3">Clear app caches</button></div><button class="btn danger full" data-action="reset-demo">Erase all local Ichigo data</button></div></details>
   </div>`;
@@ -5384,7 +5388,7 @@ drawerHTMLV8=function drawerHTMLPlayfulV9(){
       <div class="drawer-footer-v8">
         <button data-action="show-whats-new-v74">What’s New</button>
         <button data-action="install-app">Install</button>
-        <span>${navigator.onLine?"● Online":"○ Offline"} · v${APP_VERSION_V9}</span>
+        <span>${navigator.onLine?"● Online":"○ Offline"} · v${ICHIGO_CURRENT_VERSION}</span>
       </div>
     </aside>`;
 };
@@ -5674,13 +5678,13 @@ renderHome=function renderHomePlayfulV9(){
 };
 
 /* ---------- What's New ---------- */
-ICHIGO_WHATS_NEW_V74.version=APP_VERSION_V91;
+ICHIGO_WHATS_NEW_V74.version=ICHIGO_CURRENT_VERSION;
 ICHIGO_WHATS_NEW_V74.items=[
-  "Fixed the hamburger so every visible section is clickable.",
-  "Explore mode now opens the exact section you tapped instead of a generic tab preview.",
-  "Added clean empty previews for every planning, money, memory, fun and app section.",
-  "Added a navigation integrity check to catch broken route definitions.",
-  "No sample trip data was added."
+  "Fixed a startup initialization bug that could leave Ichigo on a blank screen.",
+  "Added a boot watchdog so startup failures show recovery controls instead of an empty page.",
+  "Rechecked every hamburger route and first-run Explore destination.",
+  "Hardened local saving, navigation and service-worker update behavior for smoother use.",
+  "No sample trip, travelers or fake content were added."
 ];
 
 
@@ -5690,7 +5694,7 @@ ICHIGO_WHATS_NEW_V74.items=[
    Rule: if a section is visible in the hamburger, it must open.
    ===================================================================== */
 
-const APP_VERSION_V91 = "9.1.0";
+const APP_VERSION_V91 = ICHIGO_CURRENT_VERSION;
 const CACHE_VERSION_V91 = "ichigo-build9-1-navfix-v1";
 
 function routeIntegrityV91() {
@@ -5878,7 +5882,7 @@ drawerHTMLV8=function drawerHTMLNavigationFixedV91(){
       <div class="drawer-footer-v8">
         <button data-action="show-whats-new-v74">What’s New</button>
         <button data-action="install-app">Install</button>
-        <span>${navigator.onLine?"● Online":"○ Offline"} · v${APP_VERSION_V91}</span>
+        <span>${navigator.onLine?"● Online":"○ Offline"} · v${ICHIGO_CURRENT_VERSION}</span>
       </div>
     </aside>`;
 };
@@ -5951,7 +5955,7 @@ function navigationDiagnosticsV91(){
   const routeIds=ROUTES_V8.map(x=>x.id);
   const clickableIds=new Set(routeIds);
   return {
-    version:APP_VERSION_V91,
+    version:ICHIGO_CURRENT_VERSION,
     routes:audit.count,
     valid:audit.ok,
     problems:audit.problems,
@@ -5960,11 +5964,40 @@ function navigationDiagnosticsV91(){
 }
 
 
+
+
+/* Ichigo 9.2 stability helpers */
+let ichigoDeferredRenderFrameV92 = 0;
+function requestIchigoRenderV92(){
+  if(ichigoDeferredRenderFrameV92)return;
+  ichigoDeferredRenderFrameV92=requestAnimationFrame(()=>{
+    ichigoDeferredRenderFrameV92=0;
+    try{render()}catch(error){console.error("Deferred render failed",error)}
+  });
+}
+
+/* Avoid keeping expensive map instances alive after leaving their screen. */
+function releaseInactiveMapsV92(){
+  if(!(state.currentView==="plan"&&state.planView==="map")){
+    try{if(ichigoMapInstance){ichigoMapInstance.remove();ichigoMapInstance=null}}catch{}
+  }
+  if(!(state.currentView==="trip"&&state.tripView==="visited")){
+    try{if(storyMapV7){storyMapV7.remove();storyMapV7=null}}catch{}
+  }
+}
+
+const renderBeforeRecoveryV92=render;
+render=function renderRecoveryV92(){
+  const result=renderBeforeRecoveryV92();
+  releaseInactiveMapsV92();
+  return result;
+};
+
 /* ---------- Ichigo 9 startup ---------- */
 const previousAppVersionV9 = state.appVersion || "";
 const legacyDemoRemovedV71 = cleanLegacyDemoV71();
 migrateAllTripsV9(true);
-state.appVersion = APP_VERSION_V91;
+state.appVersion = ICHIGO_CURRENT_VERSION;
 
 if (state.trips.length) {
   applyLaunchShortcut();
@@ -5980,15 +6013,25 @@ setupServiceWorkerUpdatesV3();
 
 const lastSeenVersionV9 = localStorage.getItem("ichigo-last-seen-app-version");
 if (!lastSeenVersionV9) {
-  if (previousAppVersionV9 && previousAppVersionV9 !== APP_VERSION_V91) {
+  if (previousAppVersionV9 && previousAppVersionV9 !== ICHIGO_CURRENT_VERSION) {
     localStorage.setItem("ichigo-last-seen-app-version",previousAppVersionV9);
     setTimeout(()=>showWhatsNewV74(false),500);
   } else {
-    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V91);
+    localStorage.setItem("ichigo-last-seen-app-version",ICHIGO_CURRENT_VERSION);
   }
-} else if (lastSeenVersionV9 !== APP_VERSION_V91) {
+} else if (lastSeenVersionV9 !== ICHIGO_CURRENT_VERSION) {
   setTimeout(()=>showWhatsNewV74(false),500);
 }
 
 if (legacyDemoRemovedV71) setTimeout(()=>notify("Ichigo is ready for your first trip ✓"),250);
+
+/* Startup completed. The inline boot watchdog in index.html can stand down. */
+window.__ICHIGO_BOOT_COMPLETE = true;
+document.documentElement.dataset.ichigoBoot = "ready";
+try {
+  const navAudit = navigationDiagnosticsV91();
+  if (!navAudit.valid) console.warn("Ichigo navigation audit", navAudit.problems);
+} catch (error) {
+  console.warn("Ichigo navigation audit unavailable", error);
+}
 

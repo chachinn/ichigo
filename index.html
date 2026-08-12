@@ -21,9 +21,9 @@
   <link rel="icon" type="image/png" sizes="512x512" href="./icons/icon-512-v41.png">
 
   <!-- Cache-busted manifest so Safari re-reads the current icon list. -->
-  <link rel="manifest" href="./manifest.json?v=20260812-build91-navfix">
+  <link rel="manifest" href="./manifest.json?v=20260812-build92-recovery">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-  <link rel="stylesheet" href="./style.css?v=20260812-build91-navfix">
+  <link rel="stylesheet" href="./style.css?v=20260812-build92-recovery">
 </head>
 <body>
   <a class="skip-link" href="#mainView">Skip to content</a>
@@ -42,7 +42,13 @@
 
     <div id="appUpdateHost" aria-live="polite"></div>
 
-    <main id="mainView" class="main-view" aria-live="polite"></main>
+    <main id="mainView" class="main-view" aria-live="polite">
+      <section id="ichigoBootScreen" class="boot-screen-v92">
+        <img src="./icons/icon-192-v41.png" alt="">
+        <strong>Opening Ichigo…</strong>
+        <small>Preparing your local travel space.</small>
+      </section>
+    </main>
 
     <nav id="bottomNavV8" class="bottom-nav bottom-nav-v8" aria-label="Main navigation"></nav>
 
@@ -66,9 +72,10 @@
     </div>
   </template>
 
+\n  <script>\n    window.__ICHIGO_BOOT_COMPLETE = false;\n    window.__ICHIGO_BOOT_ERROR = null;\n\n    function showIchigoBootRecovery(error) {\n      window.__ICHIGO_BOOT_ERROR = error || window.__ICHIGO_BOOT_ERROR;\n      if (window.__ICHIGO_BOOT_COMPLETE) return;\n      var main = document.getElementById('mainView');\n      if (!main) return;\n      main.innerHTML = '<section class="boot-recovery-v92">' +\n        '<img src="./icons/icon-192-v41.png" alt="">' +\n        '<p class="eyebrow">ICHIGO RECOVERY</p>' +\n        '<h1>Ichigo had trouble opening.</h1>' +\n        '<p>Your local trip data has not been erased. Reload the app first. If this keeps happening, replace the project with the complete recovery build.</p>' +\n        '<button type="button" onclick="location.reload()">Reload Ichigo</button>' +\n        '</section>';\n    }\n\n    window.addEventListener('error', function (event) {\n      if (!window.__ICHIGO_BOOT_COMPLETE) {\n        console.error('Ichigo startup error', event.error || event.message);\n        setTimeout(function(){ showIchigoBootRecovery(event.error || event.message); }, 0);\n      }\n    });\n    window.addEventListener('unhandledrejection', function (event) {\n      if (!window.__ICHIGO_BOOT_COMPLETE) {\n        console.error('Ichigo startup rejection', event.reason);\n        setTimeout(function(){ showIchigoBootRecovery(event.reason); }, 0);\n      }\n    });\n    setTimeout(function () {\n      if (!window.__ICHIGO_BOOT_COMPLETE) showIchigoBootRecovery(window.__ICHIGO_BOOT_ERROR);\n    }, 4500);\n  </script>\n
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="./data/data.js?v=20260812-build91-navfix"></script>
-  <script src="./data/db.js?v=20260812-build91-navfix"></script>
-  <script src="./app.js?v=20260812-build91-navfix"></script>
+  <script src="./data/data.js?v=20260812-build92-recovery"></script>
+  <script src="./data/db.js?v=20260812-build92-recovery"></script>
+  <script src="./app.js?v=20260812-build92-recovery"></script>
 </body>
 </html>

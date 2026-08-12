@@ -1,7 +1,7 @@
 {
   "name": "Ichigo — Trip Planner",
   "short_name": "Ichigo",
-  "description": "Plan, live and remember sweet little adventures with offline-first itinerary, Today Mode, Trip Inbox, budgets, bookings, packing, shared expenses and memories.",
+  "description": "Plan sweet little adventures with itinerary, places, budgets, bookings, offline travel tools, playful trip features and memories.",
   "id": "./",
   "start_url": "./index.html",
   "scope": "./",
