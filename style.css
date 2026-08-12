@@ -348,3 +348,57 @@ body.explore-mode-v73 .topbar{position:sticky;top:0;z-index:20}
   .explore-welcome-v73{grid-template-columns:66px 1fr}.explore-welcome-v73 img{width:66px;height:66px;border-radius:18px}
   .explore-welcome-v73 h1{font-size:20px}
 }
+
+
+/* =====================================================================
+   ICHIGO 7.4 — ABOUT + SAKURA-STYLE UPDATE NOTES
+   ===================================================================== */
+.about-ichigo-v74{margin:14px 0;border:1px solid var(--line);border-radius:22px;background:linear-gradient(135deg,#fff,#fff1f5);padding:15px;display:grid;grid-template-columns:64px 1fr;gap:13px;align-items:center;box-shadow:var(--shadow)}
+.about-ichigo-v74 img{width:64px;height:64px;border-radius:17px;display:block;object-fit:cover}
+.about-ichigo-v74 h3{margin:2px 0 5px;font-size:15px}
+.about-ichigo-v74 p:last-child{margin:0;color:var(--muted);font-size:9px;line-height:1.55}
+.about-ichigo-v74.compact{max-width:560px;margin:18px auto 0;text-align:left}
+.about-version-card-v74{padding:15px}
+
+#appUpdateHost:empty{display:none}
+.update-banner-v3{
+  position:fixed;
+  z-index:120;
+  left:max(14px,env(safe-area-inset-left));
+  right:max(14px,env(safe-area-inset-right));
+  bottom:calc(82px + env(safe-area-inset-bottom));
+  margin:0;
+  padding:13px 14px;
+  border-radius:19px;
+  background:rgba(255,255,255,.97);
+  border:1px solid var(--line);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  font-size:10px;
+  box-shadow:0 14px 38px rgba(93,62,72,.16);
+  backdrop-filter:blur(16px);
+}
+body.fresh-mode-v72 .update-banner-v3{bottom:calc(18px + env(safe-area-inset-bottom))}
+.update-copy-v74{display:block;min-width:0}
+.update-copy-v74 strong,.update-copy-v74 small{display:block}
+.update-copy-v74 strong{font-size:11px;color:var(--text)}
+.update-copy-v74 small{margin-top:2px;color:var(--muted);font-size:8px}
+.update-button-v74{flex:0 0 auto;border:1px solid #ffc3d1;border-radius:13px;background:#fff0f4;color:var(--pink2);padding:9px 14px;font-weight:900;font-size:10px}
+
+.whats-new-v74{text-align:center}
+.whats-new-icon-v74{width:78px;height:78px;margin:0 auto 10px;border-radius:21px;overflow:hidden;box-shadow:var(--shadow)}
+.whats-new-icon-v74 img{width:100%;height:100%;object-fit:cover;display:block}
+.whats-new-v74 h2{margin:3px 0 2px;font-size:22px}
+.whats-new-version-v74{margin:0 0 13px;color:var(--muted);font-size:8px}
+.whats-new-list-v74{display:grid;gap:7px;text-align:left;margin:14px 0}
+.whats-new-list-v74>div{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:flex-start;border:1px solid var(--line);border-radius:14px;background:#fff;padding:10px}
+.whats-new-list-v74 span{font-size:18px}
+.whats-new-list-v74 p{margin:1px 0 0;color:var(--muted);font-size:9px;line-height:1.45}
+
+@media(max-width:420px){
+  .about-ichigo-v74{grid-template-columns:52px 1fr;padding:12px}
+  .about-ichigo-v74 img{width:52px;height:52px;border-radius:14px}
+  .update-banner-v3{left:10px;right:10px}
+}

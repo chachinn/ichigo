@@ -1791,7 +1791,15 @@ async function updateStorageDiagnosticsV3(){if(state.currentView!=="trip"||state
 function formatBytesV3(n){n=Number(n||0);if(n<1024)return`${n} B`;if(n<1048576)return`${(n/1024).toFixed(1)} KB`;if(n<1073741824)return`${(n/1048576).toFixed(1)} MB`;return`${(n/1073741824).toFixed(1)} GB`}
 
 /* ---------- Service-worker update UI ---------- */
-function showUpdateBannerV3(reg){pendingSWRegistrationV3=reg;const host=document.querySelector("#appUpdateHost");if(!host||host.querySelector(".update-banner-v3"))return;host.innerHTML=`<div class="update-banner-v3"><span>🍓 <strong>A new Ichigo version is ready.</strong></span><button class="tiny-btn primary" data-action="apply-update-v3">Update</button></div>`}
+function showUpdateBannerV3(reg){
+  pendingSWRegistrationV3=reg;
+  const host=document.querySelector("#appUpdateHost");
+  if(!host||host.querySelector(".update-banner-v3"))return;
+  host.innerHTML=`<div class="update-banner-v3">
+    <span class="update-copy-v74"><strong>An update is available.</strong><small>Refresh to update.</small></span>
+    <button class="update-button-v74" data-action="apply-update-v3">Update</button>
+  </div>`;
+}
 async function setupServiceWorkerUpdatesV3(){if(!("serviceWorker" in navigator))return;try{const reg=await navigator.serviceWorker.getRegistration();if(!reg)return;if(reg.waiting)showUpdateBannerV3(reg);reg.addEventListener("updatefound",()=>{const w=reg.installing;if(!w)return;w.addEventListener("statechange",()=>{if(w.state==="installed"&&navigator.serviceWorker.controller)showUpdateBannerV3(reg)})});navigator.serviceWorker.addEventListener("controllerchange",()=>{if(reloadForUpdateV3)return;reloadForUpdateV3=true;location.reload()})}catch(err){console.warn(err)}}
 
 /* ---------- Onboarding ---------- */
@@ -3732,7 +3740,13 @@ renderTrip = function renderTripV7() {
 const settingsHTMLBeforeV7 = settingsHTML;
 settingsHTML = function settingsHTMLV7() {
   return `${settingsHTMLBeforeV7()}
-    <section class="card settings-card-v3"><div class="section-title"><h3>🍓 Personal Build 7 tools</h3></div><div class="btn-row wrap-v3"><button class="btn soft" data-action="open-tour-v7">App tour</button><button class="btn" data-action="customize-dashboard-v7">Dashboard</button><button class="btn" data-action="open-offline-v7">Offline Center</button><button class="btn" data-action="open-storage-v7">Storage Manager</button><button class="btn" data-action="open-release-v7">Release Check</button></div></section>`;
+    ${aboutIchigoCardV74()}
+    <section class="card settings-card-v3 about-version-card-v74">
+      <div class="section-title"><h3>🌸 About & updates</h3><span class="badge gray">v${esc(APP_VERSION_V71.replace("-personal-about-updates",""))}</span></div>
+      <p class="meta">Ichigo will show an update banner when a newer GitHub Pages build is waiting to be installed.</p>
+      <div class="btn-row wrap-v3"><button class="btn soft" data-action="show-whats-new-v74">What’s New</button><button class="btn" data-action="force-update-check-v3">Check for update</button></div>
+    </section>
+    <section class="card settings-card-v3"><div class="section-title"><h3>🍓 Personal tools</h3></div><div class="btn-row wrap-v3"><button class="btn soft" data-action="open-tour-v7">App tour</button><button class="btn" data-action="customize-dashboard-v7">Dashboard</button><button class="btn" data-action="open-offline-v7">Offline Center</button><button class="btn" data-action="open-storage-v7">Storage Manager</button><button class="btn" data-action="open-release-v7">Release Check</button></div></section>`;
 };
 
 /* ---------- Search now includes notes ---------- */
@@ -3885,8 +3899,8 @@ document.addEventListener("click",event=>{
    - Removes the legacy Japan 2026 demo from older prototype installs
    ===================================================================== */
 
-const APP_VERSION_V71 = "7.3.0-personal-explore";
-const CACHE_VERSION_V71 = "ichigo-build7-3-explore-v1";
+const APP_VERSION_V71 = "7.4.0-personal-about-updates";
+const CACHE_VERSION_V71 = "ichigo-build7-4-about-updates-v1";
 
 function isLegacyDemoTripV71(t) {
   if (!t) return false;
@@ -3948,6 +3962,8 @@ function renderFreshStartV71() {
         <div><span>🍓</span><strong>Live it</strong><small>Today Mode, spending and quick notes</small></div>
         <div><span>📖</span><strong>Remember</strong><small>Journal, timeline and scrapbook</small></div>
       </div>
+
+      ${aboutIchigoCardV74(true)}
     </section>`;
   updateOnline();
 }
@@ -4078,6 +4094,7 @@ function renderExploreHomeV73() {
         </div>
       </section>
 
+      ${aboutIchigoCardV74()}
       <div class="explore-note-v73">Explore mode does not create a trip or add any content to your Ichigo.</div>
     </section>`;
 }
@@ -4219,10 +4236,73 @@ document.addEventListener("click",event=>{
     save();
     render();
   }
+
+  if(el.dataset.action==="show-whats-new-v74"){
+    showWhatsNewV74(true);
+  }
+
+  if(el.dataset.action==="dismiss-whats-new-v74"){
+    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V71);
+    closeModal();
+  }
 });
 
 
-/* ---------- Build 7.1 startup ---------- */
+
+/* =====================================================================
+   ICHIGO BUILD 7.4 — ABOUT ICHIGO + SAKURA-STYLE UPDATES
+   ===================================================================== */
+
+const ICHIGO_ABOUT_V74 = `Ichigo (いちご) means “strawberry.” Bright, sweet, and playful, Ichigo is made for collecting all the little plans and memories that make a trip something to look forward to.`;
+
+const ICHIGO_WHATS_NEW_V74 = {
+  version: APP_VERSION_V71,
+  title: "What’s New in Ichigo",
+  items: [
+    "Added an About Ichigo story so the name and concept live inside the app.",
+    "Added a Sakura-style update banner with a clear Update button.",
+    "Added a one-time What’s New note after an installed version changes."
+  ]
+};
+
+function aboutIchigoCardV74(compact=false) {
+  return `<section class="about-ichigo-v74 ${compact?"compact":""}">
+    <img src="./icons/icon-192-v41.png" alt="">
+    <div>
+      <p class="eyebrow">ABOUT ICHIGO</p>
+      <h3>Why Ichigo? 🍓</h3>
+      <p>${esc(ICHIGO_ABOUT_V74)}</p>
+    </div>
+  </section>`;
+}
+
+function whatsNewHTMLV74() {
+  return `<div class="whats-new-v74">
+    <div class="whats-new-icon-v74"><img src="./icons/icon-192-v41.png" alt=""></div>
+    <p class="eyebrow">ICHIGO UPDATED</p>
+    <h2>${esc(ICHIGO_WHATS_NEW_V74.title)}</h2>
+    <p class="whats-new-version-v74">${esc(APP_VERSION_V71.replace("-personal-about-updates",""))}</p>
+    <div class="whats-new-list-v74">
+      ${ICHIGO_WHATS_NEW_V74.items.map(x=>`<div><span>🍓</span><p>${esc(x)}</p></div>`).join("")}
+    </div>
+    <button class="btn primary full" data-action="dismiss-whats-new-v74">Got it</button>
+  </div>`;
+}
+
+function showWhatsNewV74(force=false) {
+  const seen=localStorage.getItem("ichigo-last-seen-app-version");
+  if(!force && (!seen || seen===APP_VERSION_V71)) {
+    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V71);
+    return;
+  }
+  localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V71);
+  if(modalRoot?.firstElementChild)return;
+  openModal("Ichigo updated",whatsNewHTMLV74());
+}
+
+
+/* ---------- Build 7.4 startup ---------- */
+const previousAppVersionV74 = state.appVersion || "";
 const legacyDemoRemovedV71 = cleanLegacyDemoV71();
 migrateAllTripsV7(true);
 state.appVersion = APP_VERSION_V71;
@@ -4236,5 +4316,20 @@ if (state.trips.length) {
 save();
 render();
 setupServiceWorkerUpdatesV3();
+
+const lastSeenVersionV74 = localStorage.getItem("ichigo-last-seen-app-version");
+if (!lastSeenVersionV74) {
+  /* Existing installs upgrading from an earlier known app version get the
+     first What's New note. Brand-new installs simply record this version. */
+  if (previousAppVersionV74 && previousAppVersionV74 !== APP_VERSION_V71) {
+    localStorage.setItem("ichigo-last-seen-app-version",previousAppVersionV74);
+    setTimeout(()=>showWhatsNewV74(false),500);
+  } else {
+    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V71);
+  }
+} else if (lastSeenVersionV74 !== APP_VERSION_V71) {
+  setTimeout(()=>showWhatsNewV74(false),500);
+}
+
 if (legacyDemoRemovedV71) setTimeout(()=>notify("Ichigo is ready for your first trip ✓"),250);
 
