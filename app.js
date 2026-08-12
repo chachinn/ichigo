@@ -1366,7 +1366,7 @@ const DEFAULT_SETTINGS_V3 = {
   defaultTripCurrency: "USD",
   dateFormat: "friendly",
   timeFormat: "12h",
-  mapApp: "apple",
+  mapApp: "google",
   theme: "strawberry",
   notifications: {
     enabled: false,
@@ -2221,8 +2221,8 @@ function tripTemplateFormV4(templateId="blank") {
   const end=dateOffset(start,Math.max(0,Number(template.days||3)-1));
   return `<form id="tripTemplateCreateFormV4" data-template-id="${esc(templateId)}" class="form-grid">
     ${templateId!=="blank"?`<div class="notice-card"><span class="notice-icon">${esc(template.emoji||"🍓")}</span><span><strong>${esc(template.label||"Template")}</strong><p>${esc(template.description||"")}</p></span></div>`:""}
-    <div class="form-row"><label>TRIP NAME</label><input name="title" required value="${esc(defaults.title||"")}" placeholder="Japan 2027"></div>
-    <div class="form-row"><label>DESTINATION</label><input name="destination" required value="${esc(defaults.destination||"")}" placeholder="Japan"></div>
+    <div class="form-row"><label>TRIP NAME</label><input name="title" required value="${esc(defaults.title||"")}" placeholder="Trip name"></div>
+    <div class="form-row"><label>DESTINATION</label><input name="destination" required value="${esc(defaults.destination||"")}" placeholder="Destination"></div>
     <div class="form-row two"><div><label>START</label><input name="startDate" type="date" value="${start}" required></div><div><label>END</label><input name="endDate" type="date" value="${end}" required></div></div>
     <div class="form-row two"><div><label>FLAG / EMOJI</label><input name="countryEmoji" value="${esc(defaults.countryEmoji||template.emoji||"✈️")}"></div><div><label>CURRENCY</label><select name="baseCurrency">${currencyOptions(defaults.baseCurrency||state.settings.defaultTripCurrency)}</select></div></div>
     <button class="btn primary">Create trip</button>
@@ -3742,7 +3742,7 @@ settingsHTML = function settingsHTMLV7() {
   return `${settingsHTMLBeforeV7()}
     ${aboutIchigoCardV74()}
     <section class="card settings-card-v3 about-version-card-v74">
-      <div class="section-title"><h3>🌸 About & updates</h3><span class="badge gray">v${esc(APP_VERSION_V71.replace("-personal-about-updates",""))}</span></div>
+      <div class="section-title"><h3>🌸 About & updates</h3><span class="badge gray">v${esc(APP_VERSION_V8)}</span></div>
       <p class="meta">Ichigo will show an update banner when a newer GitHub Pages build is waiting to be installed.</p>
       <div class="btn-row wrap-v3"><button class="btn soft" data-action="show-whats-new-v74">What’s New</button><button class="btn" data-action="force-update-check-v3">Check for update</button></div>
     </section>
@@ -4242,7 +4242,7 @@ document.addEventListener("click",event=>{
   }
 
   if(el.dataset.action==="dismiss-whats-new-v74"){
-    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V71);
+    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V8);
     closeModal();
   }
 });
@@ -4256,12 +4256,14 @@ document.addEventListener("click",event=>{
 const ICHIGO_ABOUT_V74 = `Ichigo (いちご) means “strawberry.” Bright, sweet, and playful, Ichigo is made for collecting all the little plans and memories that make a trip something to look forward to.`;
 
 const ICHIGO_WHATS_NEW_V74 = {
-  version: APP_VERSION_V71,
+  version: "8.0.0",
   title: "What’s New in Ichigo",
   items: [
-    "Added an About Ichigo story so the name and concept live inside the app.",
-    "Added a Sakura-style update banner with a clear Update button.",
-    "Added a one-time What’s New note after an installed version changes."
+    "A cleaner hamburger navigation now keeps the bottom bar focused on the essentials.",
+    "Added Travel Lists, Day Board, Reservation Board, Checklist Center and Time Zone Board.",
+    "Navigation, Quick Add, layout density and motion are now customizable.",
+    "Home and major sections were simplified for smoother everyday use.",
+    "Stability, offline caching and first-time empty states received a large cleanup."
   ]
 };
 
@@ -4281,7 +4283,7 @@ function whatsNewHTMLV74() {
     <div class="whats-new-icon-v74"><img src="./icons/icon-192-v41.png" alt=""></div>
     <p class="eyebrow">ICHIGO UPDATED</p>
     <h2>${esc(ICHIGO_WHATS_NEW_V74.title)}</h2>
-    <p class="whats-new-version-v74">${esc(APP_VERSION_V71.replace("-personal-about-updates",""))}</p>
+    <p class="whats-new-version-v74">${esc(APP_VERSION_V8)}</p>
     <div class="whats-new-list-v74">
       ${ICHIGO_WHATS_NEW_V74.items.map(x=>`<div><span>🍓</span><p>${esc(x)}</p></div>`).join("")}
     </div>
@@ -4291,21 +4293,877 @@ function whatsNewHTMLV74() {
 
 function showWhatsNewV74(force=false) {
   const seen=localStorage.getItem("ichigo-last-seen-app-version");
-  if(!force && (!seen || seen===APP_VERSION_V71)) {
-    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V71);
+  if(!force && (!seen || seen===APP_VERSION_V8)) {
+    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V8);
     return;
   }
-  localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V71);
+  localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V8);
   if(modalRoot?.firstElementChild)return;
   openModal("Ichigo updated",whatsNewHTMLV74());
 }
 
 
-/* ---------- Build 7.4 startup ---------- */
-const previousAppVersionV74 = state.appVersion || "";
+
+/* =====================================================================
+   ICHIGO 8 — MEGA PERSONAL TRAVEL APP
+   Production-minded local-first release. No Supabase, no demo content.
+
+   NAVIGATION / UX
+   • Clean hamburger navigation grouped by task
+   • Only important destinations stay in the bottom bar
+   • User-customizable bottom tabs and quick-add actions
+   • Pinned drawer favorites
+   • Cleaner Home / Plan / Spend / Trip surfaces
+   • Diagnostics moved out of normal travel navigation
+
+   NEW PERSONAL FEATURES
+   • Travel Lists (custom checklist / shopping / food / photo / bucket lists)
+   • Day Board (day title, theme, notes, outfit, weather note, wake/return times)
+   • Reservation Board (derived booking command center)
+   • Checklist Center (packing + before-you-go + custom lists)
+   • Time Zone Board (user-added IANA time zones; no pre-added cities)
+   • Cleaner Quick Actions and Trip Command Center
+
+   STABILITY
+   • Schema 8 migration
+   • No records auto-created
+   • Safe empty states
+   • Drawer scroll/focus cleanup
+   • Time-zone timer only runs on its screen
+   • Reduced-motion / compact-density settings
+   • Existing backup, offline, storage, update and recovery systems retained
+   ===================================================================== */
+
+const APP_VERSION_V8 = "8.0.0";
+const APP_SCHEMA_VERSION_V8 = 8;
+const CACHE_VERSION_V8 = "ichigo-build8-mega-v1";
+
+const BOTTOM_TAB_OPTIONS_V8 = [
+  {id:"home", icon:"⌂", label:"Home"},
+  {id:"plan", icon:"▣", label:"Plan"},
+  {id:"today", icon:"🍓", label:"Today"},
+  {id:"spend", icon:"◉", label:"Spend"},
+  {id:"together", icon:"♧", label:"Together"},
+  {id:"trip", icon:"▤", label:"Trip"}
+];
+
+const QUICK_ACTIONS_V8 = [
+  {id:"activity",icon:"🗓️",label:"Activity"},
+  {id:"place",icon:"📍",label:"Place"},
+  {id:"expense",icon:"💸",label:"Expense"},
+  {id:"booking",icon:"🎟️",label:"Booking"},
+  {id:"memory",icon:"📸",label:"Memory"},
+  {id:"task",icon:"✅",label:"Task"}
+];
+
+const ROUTES_V8 = [
+  {group:"Essentials", id:"home", icon:"⌂", label:"Home", view:"home"},
+  {group:"Essentials", id:"today", icon:"🍓", label:"Today", view:"today"},
+
+  {group:"Plan", id:"itinerary", icon:"🗓️", label:"Itinerary", view:"plan", sub:"itinerary"},
+  {group:"Plan", id:"smart", icon:"🍓", label:"Smart Planner", view:"plan", sub:"smart"},
+  {group:"Plan", id:"dayboard", icon:"🌤️", label:"Day Board", view:"plan", sub:"dayboard"},
+  {group:"Plan", id:"places", icon:"📍", label:"Places", view:"plan", sub:"places"},
+  {group:"Plan", id:"map", icon:"🗺️", label:"Map", view:"plan", sub:"map"},
+  {group:"Plan", id:"reservationboard", icon:"🎫", label:"Reservation Board", view:"plan", sub:"reservationboard"},
+  {group:"Plan", id:"bookings", icon:"🎟️", label:"Bookings", view:"plan", sub:"bookings"},
+  {group:"Plan", id:"checklists", icon:"☑️", label:"Checklist Center", view:"plan", sub:"checklists"},
+  {group:"Plan", id:"packing", icon:"🧳", label:"Packing", view:"plan", sub:"packing"},
+  {group:"Plan", id:"before", icon:"✅", label:"Before You Go", view:"plan", sub:"before"},
+  {group:"Plan", id:"lists", icon:"📝", label:"Travel Lists", view:"plan", sub:"lists"},
+  {group:"Plan", id:"inbox", icon:"📥", label:"Inbox", view:"plan", sub:"inbox"},
+  {group:"Plan", id:"notes", icon:"✍️", label:"Notes & Scratchpad", view:"plan", sub:"notes"},
+  {group:"Plan", id:"timezones", icon:"🕒", label:"Time Zones", view:"plan", sub:"timezones"},
+  {group:"Plan", id:"essentials", icon:"🆘", label:"Offline Essentials", view:"plan", sub:"essentials"},
+
+  {group:"Money", id:"budget", icon:"💰", label:"Budget", view:"spend", sub:"budget"},
+  {group:"Money", id:"expenses", icon:"🧾", label:"Expenses", view:"spend", sub:"expenses"},
+  {group:"Money", id:"analytics", icon:"📈", label:"Analytics", view:"spend", sub:"analytics"},
+  {group:"Money", id:"converter", icon:"💱", label:"Converter", view:"spend", sub:"converter"},
+  {group:"Money", id:"split", icon:"💸", label:"Split Expenses", view:"spend", sub:"split"},
+
+  {group:"Remember", id:"journal", icon:"📸", label:"Journal", view:"trip", sub:"memories"},
+  {group:"Remember", id:"timeline", icon:"🕰️", label:"Timeline", view:"trip", sub:"timeline"},
+  {group:"Remember", id:"food", icon:"🍜", label:"Food Diary", view:"trip", sub:"food"},
+  {group:"Remember", id:"highlights", icon:"⭐", label:"Highlights", view:"trip", sub:"highlights"},
+  {group:"Remember", id:"visited", icon:"🗺️", label:"Story Map", view:"trip", sub:"visited"},
+  {group:"Remember", id:"scrapbook", icon:"📖", label:"Scrapbook", view:"trip", sub:"scrapbook"},
+  {group:"Remember", id:"recap", icon:"📊", label:"Trip Recap", view:"trip", sub:"recap"},
+
+  {group:"Together", id:"together", icon:"👥", label:"Travel Together", view:"together"},
+
+  {group:"Trip & App", id:"health", icon:"💗", label:"Trip Health", view:"trip", sub:"health"},
+  {group:"Trip & App", id:"stats", icon:"🌏", label:"Travel Stats", view:"trip", sub:"stats"},
+  {group:"Trip & App", id:"info", icon:"ℹ️", label:"Trip Info", view:"trip", sub:"info"},
+  {group:"Trip & App", id:"offline", icon:"📴", label:"Offline Center", view:"trip", sub:"offline"},
+  {group:"Trip & App", id:"storage", icon:"💾", label:"Storage Manager", view:"trip", sub:"storage"},
+  {group:"Trip & App", id:"settings", icon:"⚙️", label:"Settings", view:"trip", sub:"settings"}
+];
+
+const PLAN_META_V8 = {
+  itinerary:["🗓️","Itinerary","Build the day-by-day plan."],
+  smart:["🍓","Smart Planner","Turn saved places into a sensible day."],
+  dayboard:["🌤️","Day Board","Keep the little details for each travel day."],
+  places:["📍","Places","Save places you want to eat, shop and explore."],
+  map:["🗺️","Map","See your saved and planned locations."],
+  reservationboard:["🎫","Reservation Board","See reservations and confirmations at a glance."],
+  bookings:["🎟️","Bookings","Store flights, stays, tickets and reservations."],
+  checklists:["☑️","Checklist Center","See unfinished packing, prep and list items together."],
+  packing:["🧳","Packing","Build your own packing list."],
+  before:["✅","Before You Go","Keep pre-trip tasks in one place."],
+  lists:["📝","Travel Lists","Create any list your trip needs."],
+  inbox:["📥","Trip Inbox","Capture ideas before deciding where they belong."],
+  notes:["✍️","Notes & Scratchpad","Keep trip notes and quick thoughts."],
+  timezones:["🕒","Time Zones","Add only the clocks you care about."],
+  essentials:["🆘","Offline Essentials","Hotel, contacts, documents and phrases."]
+};
+
+const SPEND_META_V8 = {
+  budget:["💰","Budget","Set the boundaries for the trip."],
+  expenses:["🧾","Expenses","Track what you actually spend."],
+  analytics:["📈","Analytics","Understand your spending patterns."],
+  converter:["💱","Converter","Convert currencies with offline fallback rates."],
+  split:["💸","Split Expenses","Optional local expense sharing."]
+};
+
+const TRIP_META_V8 = {
+  memories:["📸","Journal","Save little moments as the trip unfolds."],
+  timeline:["🕰️","Timeline","Plans, spending and memories in chronological order."],
+  food:["🍜","Food Diary","Meals and food memories in one place."],
+  highlights:["⭐","Highlights","Your favorite places, activities and memories."],
+  visited:["🗺️","Story Map","A map of places you actually visited."],
+  scrapbook:["📖","Scrapbook","Your trip automatically becomes a story."],
+  recap:["📊","Trip Recap","See the trip in numbers and favorite moments."],
+  health:["💗","Trip Health","Catch unfinished or risky planning details."],
+  stats:["🌏","Travel Stats","Your personal travel history."],
+  info:["ℹ️","Trip Info","Dates, destination, cover and trip settings."],
+  offline:["📴","Offline Center","See what will still work without internet."],
+  storage:["💾","Storage Manager","Review photos, tickets and local files."],
+  settings:["⚙️","Settings","Personalize Ichigo and manage your data."]
+};
+
+let drawerOpenV8 = false;
+let timezoneTimerV8 = null;
+
+function ensureStateV8() {
+  ensureStateV7();
+  state.settings.bottomTabsV8 ||= ["home","plan","today","spend","trip"];
+  state.settings.quickActionsV8 ||= ["activity","place","expense","memory"];
+  state.settings.drawerPinsV8 ||= [];
+  state.settings.showFabV8 ??= true;
+  state.settings.densityV8 ||= "comfortable";
+  state.settings.reduceMotionV8 ||= "system";
+  return state;
+}
+
+function ensureTripV8(t) {
+  t=ensureTripV7(t);
+  if(!t)return t;
+  t.customLists ||= [];
+  t.dayBoards ||= {};
+  t.timeZones ||= [];
+
+  t.customLists.forEach(list=>{
+    list.id ||= uuid();
+    list.name ||= "List";
+    list.icon ||= "📝";
+    list.kind ||= "Checklist";
+    list.note ||= "";
+    list.createdAt ||= Date.now();
+    list.items ||= [];
+    list.items.forEach(item=>{
+      item.id ||= uuid();
+      item.name ||= "";
+      item.note ||= "";
+      item.tag ||= "";
+      item.url ||= "";
+      item.estimatedCost=Number(item.estimatedCost||0);
+      item.done ??= false;
+      item.favorite ??= false;
+      item.createdAt ||= Date.now();
+    });
+  });
+
+  t.timeZones.forEach(z=>{
+    z.id ||= uuid();
+    z.label ||= "";
+    z.timeZone ||= "";
+    z.emoji ||= "🕒";
+  });
+
+  return t;
+}
+
+function migrateAllTripsV8(persist=false) {
+  ensureStateV8();
+  const before=Number(state.schemaVersion||1);
+  state.trips=(state.trips||[]).map(ensureTripV8);
+  state.migrations ||= [];
+  if(before<8 && !state.migrations.some(x=>x.version===8)){
+    state.migrations.push({
+      version:8,
+      at:Date.now(),
+      note:"Ichigo 8 navigation, custom travel lists, day board, reservation board, checklist center and time zones"
+    });
+  }
+  state.schemaVersion=APP_SCHEMA_VERSION_V8;
+  state.appVersion=APP_VERSION_V8;
+  if(persist)save();
+}
+
+trip = function tripV8(){
+  ensureStateV8();
+  return ensureTripV8(state.trips.find(x=>x.id===state.currentTripId)||state.trips[0]);
+};
+
+save=function saveV8(){
+  ensureStateV8();
+  state.schemaVersion=APP_SCHEMA_VERSION_V8;
+  state.appVersion=APP_VERSION_V8;
+  state.updatedAt=Date.now();
+  setSaveStatusV7("Saving…","saving");
+
+  try{
+    const raw=JSON.stringify(state);
+    localStorage.setItem(STORE,raw);
+
+    if(raw.length>4_000_000 && !storageWarningShownV7){
+      storageWarningShownV7=true;
+      setTimeout(()=>notify("Ichigo's local trip data is getting large. Export a backup and review Storage Manager when convenient."),300);
+    }
+
+    clearTimeout(saveStatusTimerV7);
+    saveStatusTimerV7=setTimeout(()=>setSaveStatusV7("Saved ✓","saved"),220);
+  }catch(error){
+    logErrorV7(error,"save-v8");
+    setSaveStatusV7("Save failed","error");
+    setTimeout(()=>notify("Ichigo couldn't save this change. Export a backup before making more edits."),50);
+  }
+};
+
+
+/* A user who explored Ichigo already understands the app shell.
+   Skip the older walkthrough only in that case; true first-time creators
+   who did not explore can still receive onboarding. */
+const createTripFromTemplateBeforeV8 = createTripFromTemplateV4;
+createTripFromTemplateV4 = function createTripFromTemplateOnboardingV8(templateId,data){
+  const exploredBeforeCreating=!!exploreModeV73;
+  const created=createTripFromTemplateBeforeV8(templateId,data);
+  exploreModeV73=false;
+
+  if(exploredBeforeCreating){
+    state.onboarding ||= {};
+    state.onboarding.completed=true;
+    onboardingShownV3=true;
+  }
+
+  return created;
+};
+
+/* Ichigo 8 neutral first-trip form. */
+const tripTemplateFormBeforeV8 = tripTemplateFormV4;
+tripTemplateFormV4 = function tripTemplateFormNeutralV8(templateId="blank") {
+  if(templateId!=="blank") return tripTemplateFormBeforeV8(templateId);
+  return `<form id="tripTemplateCreateFormV4" data-template-id="blank" class="form-grid">
+    <div class="notice-card"><span class="notice-icon">🍓</span><span><strong>Start with a blank trip</strong><p>Nothing will be added until you add it yourself.</p></span></div>
+    <div class="form-row"><label>TRIP NAME</label><input name="title" required placeholder="My next trip"></div>
+    <div class="form-row"><label>DESTINATION</label><input name="destination" required placeholder="Where are you going?"></div>
+    <div class="form-row two"><div><label>START</label><input name="startDate" type="date" required></div><div><label>END</label><input name="endDate" type="date" required></div></div>
+    <div class="form-row two"><div><label>FLAG / EMOJI</label><input name="countryEmoji" value="✈️"></div><div><label>CURRENCY</label><select name="baseCurrency">${currencyOptions(state.settings.defaultTripCurrency)}</select></div></div>
+    <button class="btn primary">Create empty trip</button>
+  </form>`;
+};
+
+/* ---------- Navigation ---------- */
+function routeByIdV8(id){return ROUTES_V8.find(x=>x.id===id)}
+
+function routeActiveV8(route){
+  if(!route)return false;
+  if(state.currentView!==route.view)return false;
+  if(route.view==="plan")return state.planView===route.sub;
+  if(route.view==="spend")return state.spendView===route.sub;
+  if(route.view==="trip")return state.tripView===route.sub;
+  return true;
+}
+
+function navigateV8(routeId,{closeDrawer=true}={}){
+  const route=routeByIdV8(routeId);
+  if(!route)return;
+
+  if(!(state.trips||[]).length){
+    exploreModeV73=true;
+    state.currentView=route.view;
+    if(!["home","plan","today","spend","together","trip"].includes(state.currentView))state.currentView="home";
+    save();
+    if(closeDrawer)closeDrawerV8();
+    render();
+    return;
+  }
+
+  state.currentView=route.view;
+  if(route.view==="plan")state.planView=route.sub;
+  if(route.view==="spend")state.spendView=route.sub;
+  if(route.view==="trip")state.tripView=route.sub;
+  save();
+  if(closeDrawer)closeDrawerV8();
+  render();
+}
+
+function renderBottomNavV8(){
+  const nav=document.querySelector("#bottomNavV8")||document.querySelector(".bottom-nav");
+  if(!nav)return;
+  ensureStateV8();
+  let ids=(state.settings.bottomTabsV8||[]).filter(id=>BOTTOM_TAB_OPTIONS_V8.some(x=>x.id===id));
+  if(ids.length<3)ids=["home","plan","today","spend","trip"];
+  ids=ids.slice(0,5);
+  nav.style.setProperty("--tab-count",ids.length);
+  nav.innerHTML=ids.map(id=>{
+    const item=BOTTOM_TAB_OPTIONS_V8.find(x=>x.id===id);
+    const active=state.currentView===id;
+    const icon=id==="today"
+      ? `<span class="berry-orb"><img src="./icons/icon-192-v41.png" alt=""></span>`
+      : `<span>${item.icon}</span>`;
+    return `<button class="nav-item ${id==="today"?"today-nav":""} ${active?"active":""}" data-nav="${id}" aria-label="${esc(item.label)}" ${active?'aria-current="page"':""}>${icon}<small>${esc(item.label)}</small></button>`;
+  }).join("");
+}
+
+function drawerRouteRowV8(route){
+  const pinned=(state.settings.drawerPinsV8||[]).includes(route.id);
+  return `<div class="drawer-route-row-v8 ${routeActiveV8(route)?"active":""}">
+    <button class="drawer-route-v8" data-action="navigate-route-v8" data-route="${route.id}">
+      <span>${route.icon}</span><strong>${esc(route.label)}</strong>
+    </button>
+    <button class="drawer-pin-v8 ${pinned?"pinned":""}" data-action="toggle-drawer-pin-v8" data-route="${route.id}" aria-label="${pinned?"Unpin":"Pin"} ${esc(route.label)}">${pinned?"★":"☆"}</button>
+  </div>`;
+}
+
+function drawerHTMLV8(){
+  const hasTrip=!!(state.trips||[]).length;
+  if(!hasTrip){
+    return `<div class="drawer-backdrop-v8 ${drawerOpenV8?"open":""}" data-action="close-drawer-v8"></div>
+      <aside class="drawer-v8 ${drawerOpenV8?"open":""}" aria-label="Ichigo menu">
+        <div class="drawer-head-v8">
+          <img src="./icons/icon-192-v41.png" alt="">
+          <div><strong>ichigo</strong><small>Plan sweet little adventures.</small></div>
+          <button class="icon-btn" data-action="close-drawer-v8" aria-label="Close menu">✕</button>
+        </div>
+        <div class="drawer-empty-v8">
+          <p>Explore Ichigo freely, or create your first trip whenever you're ready.</p>
+          <button class="btn primary full" data-action="new-trip">＋ Create Trip</button>
+          <button class="btn soft full" data-action="explore-ichigo-v73">Explore Ichigo</button>
+          <div class="drawer-preview-nav-v8">
+            ${[["home","⌂","Home"],["plan","▣","Plan"],["today","🍓","Today"],["spend","◉","Spend"],["together","👥","Together"],["trip","▤","Trip"]].map(([view,icon,label])=>`<button data-action="navigate-explore-v8" data-view="${view}"><span>${icon}</span>${label}</button>`).join("")}
+          </div>
+        </div>
+        ${aboutIchigoCardV74(true)}
+        <div class="drawer-footer-v8">
+          <button data-action="show-whats-new-v74">What’s New</button>
+          <button data-action="install-app">Install</button>
+          <span>${navigator.onLine?"● Online":"○ Offline"} · v${APP_VERSION_V8}</span>
+        </div>
+      </aside>`;
+  }
+
+  const pins=(state.settings.drawerPinsV8||[]).map(routeByIdV8).filter(Boolean);
+  const groups=[...new Set(ROUTES_V8.map(x=>x.group))];
+
+  return `<div class="drawer-backdrop-v8 ${drawerOpenV8?"open":""}" data-action="close-drawer-v8"></div>
+    <aside class="drawer-v8 ${drawerOpenV8?"open":""}" aria-label="Ichigo menu">
+      <div class="drawer-head-v8">
+        <img src="./icons/icon-192-v41.png" alt="">
+        <div><strong>ichigo</strong><small>${esc(trip().title)}</small></div>
+        <button class="icon-btn" data-action="close-drawer-v8" aria-label="Close menu">✕</button>
+      </div>
+      <div class="drawer-utilities-v8">
+        <button data-action="open-search-v3">⌕ Search</button>
+        <button data-action="open-quick-add">＋ Quick Add</button>
+      </div>
+      <div class="drawer-scroll-v8">
+        ${pins.length?`<section class="drawer-group-v8"><h3>★ Pinned</h3>${pins.map(drawerRouteRowV8).join("")}</section>`:""}
+        ${groups.map(group=>`<section class="drawer-group-v8"><h3>${esc(group)}</h3>${ROUTES_V8.filter(x=>x.group===group).map(drawerRouteRowV8).join("")}</section>`).join("")}
+      </div>
+      <div class="drawer-footer-v8">
+        <button data-action="force-update-check-v3">Check Update</button>
+        <button data-action="install-app">Install</button>
+        <span>${navigator.onLine?"● Online":"○ Offline"} · v${APP_VERSION_V8}</span>
+      </div>
+    </aside>`;
+}
+
+function renderDrawerV8(){
+  const root=document.querySelector("#drawerRootV8");if(!root)return;
+  root.innerHTML=drawerHTMLV8();
+}
+
+function openDrawerV8(){
+  drawerOpenV8=true;
+  document.body.classList.add("drawer-open-v8");
+  renderDrawerV8();
+  requestAnimationFrame(()=>document.querySelector(".drawer-v8.open .drawer-route-v8, .drawer-v8.open .btn")?.focus({preventScroll:true}));
+}
+
+function closeDrawerV8(){
+  drawerOpenV8=false;
+  document.body.classList.remove("drawer-open-v8");
+  renderDrawerV8();
+}
+
+function toggleDrawerPinV8(routeId){
+  const pins=new Set(state.settings.drawerPinsV8||[]);
+  if(pins.has(routeId))pins.delete(routeId);else pins.add(routeId);
+  state.settings.drawerPinsV8=[...pins].slice(0,8);
+  save();renderDrawerV8();
+}
+
+function applyDensityV8(){
+  document.body.classList.toggle("density-compact-v8",state.settings.densityV8==="compact");
+  const reduce=state.settings.reduceMotionV8;
+  document.body.classList.toggle("force-reduced-motion-v8",reduce==="reduce");
+}
+
+function syncChromeV8(){
+  applyDensityV8();
+  renderBottomNavV8();
+  renderDrawerV8();
+  const fab=document.querySelector("#fab");
+  if(fab)fab.hidden=!state.settings.showFabV8 || !(state.trips||[]).length || document.body.classList.contains("fresh-mode-v72") || document.body.classList.contains("explore-mode-v73");
+}
+
+/* ---------- Clean Home ---------- */
+function homeQuickActionV8(id){
+  const q=QUICK_ACTIONS_V8.find(x=>x.id===id);
+  if(!q)return"";
+  return `<button class="home-quick-v8" data-action="quick-add-type" data-type="${q.id}"><span>${q.icon}</span><small>${esc(q.label)}</small></button>`;
+}
+
+function renderHomeV8(){
+  const t=trip(),st=status(t),health=healthCheckV4(t),date=activeDate(t);
+  const ts=timelineStateV3(date,t),next=ts.current||ts.next;
+  const remaining=Math.max(0,Number(t.totalBudget||0)-spent(t));
+  const checklistTotal=t.packing.length+t.preTrip.length+t.customLists.reduce((s,l)=>s+l.items.length,0);
+  const checklistDone=t.packing.filter(x=>x.done).length+t.preTrip.filter(x=>x.done).length+t.customLists.reduce((s,l)=>s+l.items.filter(x=>x.done).length,0);
+  const nextBooking=[...t.bookings].filter(b=>b.status!=="Cancelled"&&b.date>=isoToday()).sort((a,b)=>`${a.date} ${a.time||"99:99"}`.localeCompare(`${b.date} ${b.time||"99:99"}`))[0];
+  const quick=(state.settings.quickActionsV8||["activity","place","expense","memory"]).slice(0,6);
+  const shelf=state.trips.filter(x=>!x.archived);
+
+  main.innerHTML=`
+    <section class="home-hero-v8">
+      <div class="home-trip-title-v8">
+        <div><p class="eyebrow">${st==="active"?"TRAVELING NOW":st==="planning"?"UPCOMING TRIP":"TRIP MEMORY"}</p><h1>${esc(t.countryEmoji||"✈️")} ${esc(t.title)}</h1><p>${nice(t.startDate)} – ${nice(t.endDate,{month:"short",day:"numeric",year:"numeric"})}</p></div>
+        <button class="hero-menu-v8" data-action="open-drawer-v8">☰</button>
+      </div>
+      <div class="home-countdown-v8">${st==="planning"?`<strong>${Math.max(0,daysUntil(t.startDate))}</strong><span>days to go</span>`:st==="active"?`<strong>Day ${dayNo(date,t)}</strong><span>${esc(t.cityLabel||t.destination)}</span>`:`<strong>${daysBetween(t.startDate,t.endDate)}</strong><span>travel days</span>`}</div>
+      <div class="home-hero-grid-v8">
+        <button data-action="navigate-route-v8" data-route="itinerary"><span>🗓️ Plan</span><strong>${t.itinerary.length}</strong><small>activities</small></button>
+        <button data-action="navigate-route-v8" data-route="budget"><span>💴 Budget left</span><strong>${t.totalBudget?money(remaining):"—"}</strong><small>${t.expenses.length} expenses</small></button>
+        <button data-action="navigate-route-v8" data-route="checklists"><span>☑️ Checklists</span><strong>${checklistTotal?`${checklistDone}/${checklistTotal}`:"—"}</strong><small>completed</small></button>
+        <button data-action="navigate-route-v8" data-route="health"><span>💗 Trip health</span><strong>${health.score}</strong><small>/ 100</small></button>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title"><h3>Quick add</h3><button data-action="open-quick-add">More</button></div>
+      <div class="home-quick-grid-v8">${quick.map(homeQuickActionV8).join("")}</div>
+    </section>
+
+    <section class="section home-focus-grid-v8">
+      <article class="card home-focus-v8">
+        <div class="section-title"><h3>${st==="active"?"🍓 Today":"🗓️ Next plan"}</h3><button data-action="navigate-route-v8" data-route="${st==="active"?"today":"itinerary"}">Open</button></div>
+        ${next?`<strong>${next.flexible?esc(next.daypart||"Anytime"):esc(formatTimeV3(next.time||""))} · ${esc(next.title)}</strong><p>${esc(next.place||next.address||"")}</p>`:`<strong>Nothing scheduled yet</strong><p>Add an activity whenever you're ready.</p>`}
+      </article>
+      <article class="card home-focus-v8">
+        <div class="section-title"><h3>🎟️ Next reservation</h3><button data-action="navigate-route-v8" data-route="reservationboard">Open</button></div>
+        ${nextBooking?`<strong>${esc(nextBooking.title)}</strong><p>${nice(nextBooking.date)}${nextBooking.time?` · ${esc(formatTimeV3(nextBooking.time))}`:""}</p>`:`<strong>No upcoming booking</strong><p>Your reservation board is ready when you need it.</p>`}
+      </article>
+    </section>
+
+    <section class="section">
+      <div class="section-title"><h3>Your trips</h3><button data-action="new-trip">＋ New</button></div>
+      <div class="home-shelf-v8">${shelf.map(x=>`<button class="home-trip-card-v8 ${x.id===t.id?"active":""}" data-action="switch-trip" data-id="${x.id}"><span>${esc(x.countryEmoji||"✈️")}</span><div><strong>${esc(x.title)}</strong><small>${nice(x.startDate,{month:"short",day:"numeric"})} – ${nice(x.endDate,{month:"short",day:"numeric"})}</small></div><b>${tripStageLabelV4(x)}</b></button>`).join("")}</div>
+    </section>`;
+}
+renderHome=renderHomeV8;
+
+/* ---------- New feature: Travel Lists ---------- */
+function listTemplateCardsV8(){
+  const templates=[
+    ["🎁","Souvenirs","Shopping"],["🍜","Food to Try","Food"],["📸","Photo Spots","Photo"],
+    ["🛍️","Shopping","Shopping"],["✨","Bucket List","Checklist"],["📝","Custom List","Checklist"]
+  ];
+  return `<div class="list-template-grid-v8">${templates.map(([icon,name,kind])=>`<button data-action="create-list-template-v8" data-icon="${icon}" data-name="${esc(name)}" data-kind="${kind}"><span>${icon}</span><strong>${esc(name)}</strong><small>Starts empty</small></button>`).join("")}</div>`;
+}
+
+function customListsHTMLV8(){
+  const t=trip();
+  return `<div class="section-title"><h3>Travel Lists</h3><button data-action="add-custom-list-v8">＋ New list</button></div>
+    <p class="page-help-v8">Make the lists your trip actually needs. Templates create an empty list—nothing is pre-added.</p>
+    ${!t.customLists.length?`${listTemplateCardsV8()}${empty("📝","No travel lists yet","Create a souvenir list, food list, photo list, bucket list or anything else.")}`:
+      `<div class="custom-list-grid-v8">${t.customLists.map(list=>{
+        const done=list.items.filter(x=>x.done).length,total=list.items.length,cost=list.items.reduce((s,x)=>s+Number(x.estimatedCost||0),0);
+        return `<article class="card custom-list-card-v8">
+          <div class="custom-list-head-v8"><span>${esc(list.icon||"📝")}</span><div><h3>${esc(list.name)}</h3><p>${esc(list.kind)}${list.note?` · ${esc(list.note)}`:""}</p></div><button class="tiny-btn" data-action="edit-custom-list-v8" data-id="${list.id}">Edit</button></div>
+          <div class="custom-list-progress-v8"><div><i style="width:${total?done/total*100:0}%"></i></div><small>${done}/${total} done${cost?` · ${money(cost)} planned`:""}</small></div>
+          <div class="custom-list-items-v8">${list.items.length?list.items.map(item=>`<div class="custom-list-item-v8 ${item.done?"done":""}">
+            <input type="checkbox" aria-label="Mark ${esc(item.name)} complete" data-action="toggle-custom-list-item-v8" data-list-id="${list.id}" data-id="${item.id}" ${item.done?"checked":""}>
+            <span class="custom-list-star-v8">${item.favorite?"★":"○"}</span>
+            <span><strong>${esc(item.name)}</strong>${item.note?`<small>${esc(item.note)}</small>`:""}${item.tag?`<em>${esc(item.tag)}</em>`:""}</span>
+            ${item.estimatedCost?`<b>${money(item.estimatedCost)}</b>`:"<b></b>"}
+            <button class="tiny-btn" type="button" data-action="edit-custom-list-item-v8" data-list-id="${list.id}" data-id="${item.id}">Edit</button>
+          </div>`).join(""):`<div class="mini-empty-v8">This list is empty.</div>`}</div>
+          <div class="btn-row wrap-v3"><button class="btn soft" data-action="add-custom-list-item-v8" data-list-id="${list.id}">＋ Add item</button><button class="btn" data-action="toggle-list-favorite-v8" data-list-id="${list.id}">★ Sort favorites first</button><button class="btn danger" data-action="delete-custom-list-v8" data-list-id="${list.id}">Delete list</button></div>
+        </article>`}).join("")}</div>`}`;
+}
+
+function customListFormV8(item={}){
+  return `<form id="customListFormV8" data-edit-id="${item.id||""}" class="form-grid">
+    <div class="form-row two"><div><label>ICON</label><input name="icon" value="${esc(item.icon||"📝")}" maxlength="4"></div><div><label>TYPE</label><select name="kind">${["Checklist","Shopping","Food","Photo","Custom"].map(x=>`<option ${item.kind===x?"selected":""}>${x}</option>`).join("")}</select></div></div>
+    <div class="form-row"><label>LIST NAME</label><input name="name" required value="${esc(item.name||"")}" placeholder="Souvenirs"></div>
+    <div class="form-row"><label>NOTE</label><input name="note" value="${esc(item.note||"")}" placeholder="Optional"></div>
+    <button class="btn primary">${item.id?"Save list":"Create empty list"}</button>
+  </form>`;
+}
+
+function customListItemFormV8(list,item={}){
+  return `<form id="customListItemFormV8" data-list-id="${list.id}" data-edit-id="${item.id||""}" class="form-grid">
+    <div class="form-row"><label>ITEM</label><input name="name" required value="${esc(item.name||"")}" placeholder="${list.kind==="Food"?"Restaurant or dish":list.kind==="Photo"?"Photo spot":"List item"}"></div>
+    <div class="form-row two"><div><label>TAG</label><input name="tag" value="${esc(item.tag||"")}" placeholder="Optional"></div><div><label>EXPECTED COST</label><input name="estimatedCost" type="number" min="0" step=".01" value="${Number(item.estimatedCost||0)}"></div></div>
+    <label class="check-inline-v3"><input name="favorite" type="checkbox" ${item.favorite?"checked":""}> ⭐ Favorite / priority</label>
+    <div class="form-row"><label>NOTE</label><textarea name="note">${esc(item.note||"")}</textarea></div>
+    <div class="form-row"><label>LINK</label><input name="url" type="url" value="${esc(item.url||"")}" placeholder="Optional"></div>
+    <button class="btn primary">${item.id?"Save item":"Add item"}</button>
+  </form>`;
+}
+
+/* ---------- New feature: Day Board ---------- */
+function currentDayBoardDateV8(){
+  const d=state.activeItineraryDate||activeDate();
+  return allDates().includes(d)?d:allDates()[0];
+}
+
+function dayBoardHTMLV8(){
+  const t=trip(),date=currentDayBoardDateV8(),b=t.dayBoards[date]||{};
+  const bookings=t.bookings.filter(x=>x.date===date&&x.status!=="Cancelled");
+  const plans=activitiesOn(date,t);
+  return `<div class="section-title"><h3>Day ${dayNo(date,t)} Board</h3><button data-action="edit-day-board-v8" data-date="${date}">Edit day</button></div>
+    <div class="chips compact-chips-v8">${allDates(t).map(d=>`<button class="chip ${d===date?"active":""}" data-action="set-day-board-date-v8" data-date="${d}">Day ${dayNo(d,t)}</button>`).join("")}</div>
+    <section class="day-board-hero-v8">
+      <div><p class="eyebrow">${nice(date,{weekday:"long",month:"long",day:"numeric"})}</p><h2>${esc(b.title||`Day ${dayNo(date,t)}`)}</h2><p>${esc(b.theme||"Add a day theme, focus or nickname.")}</p></div>
+      <span>${esc(b.emoji||"🌸")}</span>
+    </section>
+    <div class="day-board-grid-v8">
+      <article class="card"><span>⏰</span><small>Wake up</small><strong>${b.wakeTime?esc(formatTimeV3(b.wakeTime)):"—"}</strong></article>
+      <article class="card"><span>🌙</span><small>Back by</small><strong>${b.returnTime?esc(formatTimeV3(b.returnTime)):"—"}</strong></article>
+      <article class="card"><span>🗓️</span><small>Plans</small><strong>${plans.length}</strong></article>
+      <article class="card"><span>🎟️</span><small>Reservations</small><strong>${bookings.length}</strong></article>
+    </div>
+    <div class="day-board-notes-v8">
+      <article class="card"><h3>📝 Day note</h3><p>${esc(b.note||"Nothing added yet.")}</p></article>
+      <article class="card"><h3>👗 Outfit / what to bring</h3><p>${esc(b.outfit||"Nothing added yet.")}</p></article>
+      <article class="card"><h3>🌦️ Weather note</h3><p>${esc(b.weatherNote||"Add your own weather reminder or clothing note.")}</p></article>
+      <article class="card"><h3>💡 Reminder</h3><p>${esc(b.reminder||"Nothing added yet.")}</p></article>
+    </div>`;
+}
+
+function dayBoardFormV8(date,item={}){
+  return `<form id="dayBoardFormV8" data-date="${date}" class="form-grid">
+    <div class="form-row two"><div><label>DAY ICON</label><input name="emoji" value="${esc(item.emoji||"🌸")}" maxlength="4"></div><div><label>DAY TITLE</label><input name="title" value="${esc(item.title||"")}" placeholder="Kamakura day"></div></div>
+    <div class="form-row"><label>THEME / FOCUS</label><input name="theme" value="${esc(item.theme||"")}" placeholder="Temples, seaside and slow food"></div>
+    <div class="form-row two"><div><label>WAKE UP</label><input name="wakeTime" type="time" value="${item.wakeTime||""}"></div><div><label>BACK BY</label><input name="returnTime" type="time" value="${item.returnTime||""}"></div></div>
+    <div class="form-row"><label>DAY NOTE</label><textarea name="note">${esc(item.note||"")}</textarea></div>
+    <div class="form-row"><label>OUTFIT / WHAT TO BRING</label><textarea name="outfit">${esc(item.outfit||"")}</textarea></div>
+    <div class="form-row"><label>WEATHER NOTE</label><textarea name="weatherNote">${esc(item.weatherNote||"")}</textarea></div>
+    <div class="form-row"><label>REMINDER</label><textarea name="reminder">${esc(item.reminder||"")}</textarea></div>
+    <button class="btn primary">Save Day Board</button>
+  </form>`;
+}
+
+/* ---------- New feature: Reservation Board ---------- */
+function reservationBoardHTMLV8(){
+  const t=trip(),arr=[...t.bookings].filter(x=>x.status!=="Cancelled").sort((a,b)=>`${a.date||"9999"} ${a.time||"99:99"}`.localeCompare(`${b.date||"9999"} ${b.time||"99:99"}`));
+  const upcoming=arr.filter(x=>x.date>=isoToday());
+  const next=upcoming[0];
+  const statuses={};arr.forEach(x=>statuses[x.status||"Saved"]=(statuses[x.status||"Saved"]||0)+1);
+  const days=[...new Set(arr.map(x=>x.date).filter(Boolean))];
+  return `<div class="section-title"><h3>Reservation Board</h3><button data-action="quick-add-type" data-type="booking">＋ Booking</button></div>
+    <div class="reservation-summary-v8">
+      <article class="card"><small>UPCOMING</small><strong>${upcoming.length}</strong><span>reservations</span></article>
+      <article class="card"><small>CONFIRMED</small><strong>${arr.filter(x=>x.status==="Confirmed").length}</strong><span>ready</span></article>
+      <article class="card"><small>NEEDS REVIEW</small><strong>${arr.filter(x=>!["Confirmed","Cancelled"].includes(x.status)).length}</strong><span>saved / pending</span></article>
+    </div>
+    ${next?`<section class="card next-reservation-v8"><p class="eyebrow">NEXT RESERVATION</p><h2>${esc(next.title)}</h2><p>${nice(next.date)}${next.time?` · ${esc(formatTimeV3(next.time))}`:""} · ${esc(next.type||"Booking")}</p><div class="btn-row wrap-v3"><button class="btn soft" data-action="edit-booking-v2" data-id="${next.id}">Open details</button>${next.link?`<a class="btn" href="${esc(next.link)}" target="_blank" rel="noopener">Open link</a>`:""}</div></section>`:""}
+    ${days.length?days.map(date=>`<section class="section"><div class="section-title"><h3>${nice(date,{weekday:"short",month:"short",day:"numeric"})}</h3><span class="meta">${arr.filter(x=>x.date===date).length}</span></div><div class="list">${bookingRows(arr.filter(x=>x.date===date))}</div></section>`).join(""):empty("🎟️","No reservations yet","Add flights, hotels, restaurant bookings, tickets or anything with a confirmation.","booking")}`;
+}
+
+/* ---------- New feature: Checklist Center ---------- */
+function checklistCenterHTMLV8(){
+  const t=trip();
+  const packing=t.packing.map(x=>({source:"Packing",icon:"🧳",id:x.id,name:x.name,done:x.done,detail:x.category||""}));
+  const prep=t.preTrip.map(x=>({source:"Before You Go",icon:"✅",id:x.id,name:x.name,done:x.done,detail:x.dueDate?`Due ${nice(x.dueDate)}`:(x.detail||"")}));
+  const custom=t.customLists.flatMap(list=>list.items.map(x=>({source:list.name,icon:list.icon||"📝",id:x.id,listId:list.id,name:x.name,done:x.done,detail:x.note||x.tag||""})));
+  const all=[...packing,...prep,...custom],done=all.filter(x=>x.done).length;
+  return `<div class="section-title"><h3>Checklist Center</h3><span class="meta">${done}/${all.length} complete</span></div>
+    <div class="checklist-center-progress-v8"><div><i style="width:${all.length?done/all.length*100:0}%"></i></div><strong>${all.length?Math.round(done/all.length*100):0}%</strong></div>
+    <div class="checklist-source-grid-v8">
+      <button data-action="navigate-route-v8" data-route="packing"><span>🧳</span><strong>${t.packing.filter(x=>!x.done).length}</strong><small>packing left</small></button>
+      <button data-action="navigate-route-v8" data-route="before"><span>✅</span><strong>${t.preTrip.filter(x=>!x.done).length}</strong><small>prep left</small></button>
+      <button data-action="navigate-route-v8" data-route="lists"><span>📝</span><strong>${custom.filter(x=>!x.done).length}</strong><small>list items left</small></button>
+    </div>
+    ${all.length?`<div class="checklist-master-v8">${all.filter(x=>!x.done).map(x=>`<article><span>${x.icon}</span><div><strong>${esc(x.name)}</strong><small>${esc(x.source)}${x.detail?` · ${esc(x.detail)}`:""}</small></div></article>`).join("")}${done?`<details><summary>${done} completed item${done===1?"":"s"}</summary>${all.filter(x=>x.done).map(x=>`<article class="done"><span>${x.icon}</span><div><strong>${esc(x.name)}</strong><small>${esc(x.source)}</small></div></article>`).join("")}</details>`:""}</div>`:empty("☑️","Nothing to check off yet","Packing, Before You Go tasks and your own Travel Lists will collect here automatically.")}`;
+}
+
+/* ---------- New feature: Time Zone Board ---------- */
+function validTimeZoneV8(zone){
+  try{new Intl.DateTimeFormat("en-US",{timeZone:zone}).format();return true}catch{return false}
+}
+function zoneTimeV8(zone){
+  try{
+    return new Intl.DateTimeFormat(undefined,{timeZone:zone,timeStyle:"short",hour12:state.settings.timeFormat!=="24h"}).format(new Date());
+  }catch{return"Invalid zone"}
+}
+function zoneDateV8(zone){
+  try{return new Intl.DateTimeFormat(undefined,{timeZone:zone,weekday:"short",month:"short",day:"numeric"}).format(new Date())}catch{return""}
+}
+function timeZonesHTMLV8(){
+  const t=trip();
+  return `<div class="section-title"><h3>Time Zone Board</h3><button data-action="add-time-zone-v8">＋ Time zone</button></div>
+    <p class="page-help-v8">Add only the clocks you want. Use an IANA zone such as <code>Asia/Tokyo</code>, <code>Europe/Paris</code> or <code>America/New_York</code>.</p>
+    ${t.timeZones.length?`<div class="timezone-grid-v8">${t.timeZones.map(z=>`<article class="card timezone-card-v8"><span>${esc(z.emoji||"🕒")}</span><div><small>${esc(z.label||z.timeZone)}</small><strong data-timezone="${esc(z.timeZone)}">${esc(zoneTimeV8(z.timeZone))}</strong><p>${esc(zoneDateV8(z.timeZone))} · ${esc(z.timeZone)}</p></div><div><button class="tiny-btn" data-action="edit-time-zone-v8" data-id="${z.id}">Edit</button><button class="tiny-btn danger" data-action="delete-time-zone-v8" data-id="${z.id}">Delete</button></div></article>`).join("")}</div>`:empty("🕒","No time zones added","Add destination or home clocks if they're useful to you.")}`;
+}
+function timeZoneFormV8(item={}){
+  return `<form id="timeZoneFormV8" data-edit-id="${item.id||""}" class="form-grid">
+    <div class="form-row two"><div><label>ICON</label><input name="emoji" value="${esc(item.emoji||"🕒")}" maxlength="4"></div><div><label>LABEL</label><input name="label" value="${esc(item.label||"")}" placeholder="Tokyo"></div></div>
+    <div class="form-row"><label>IANA TIME ZONE</label><input name="timeZone" required value="${esc(item.timeZone||"")}" placeholder="Asia/Tokyo"><small class="inline-help">No city is added automatically.</small></div>
+    <button class="btn primary">Save time zone</button>
+  </form>`;
+}
+function startTimezoneTimerV8(){
+  clearInterval(timezoneTimerV8);timezoneTimerV8=null;
+  if(state.currentView==="plan"&&state.planView==="timezones"&&trip().timeZones.length){
+    timezoneTimerV8=setInterval(()=>{
+      document.querySelectorAll("[data-timezone]").forEach(el=>el.textContent=zoneTimeV8(el.dataset.timezone));
+    },30000);
+  }
+}
+
+/* ---------- Cleaner section renderers ---------- */
+const planHTMLBeforeV8=planHTML;
+planHTML=function planHTMLV8(v){
+  if(v==="lists")return customListsHTMLV8();
+  if(v==="dayboard")return dayBoardHTMLV8();
+  if(v==="reservationboard")return reservationBoardHTMLV8();
+  if(v==="checklists")return checklistCenterHTMLV8();
+  if(v==="timezones")return timeZonesHTMLV8();
+  return planHTMLBeforeV8(v);
+};
+
+renderPlan=function renderPlanV8(){
+  const v=PLAN_META_V8[state.planView]?state.planView:"itinerary",m=PLAN_META_V8[v];
+  state.planView=v;
+  main.innerHTML=`<div class="clean-page-head-v8"><div><p class="eyebrow">PLAN</p><h1>${m[0]} ${esc(m[1])}</h1><p>${esc(m[2])}</p></div><button class="btn soft" data-action="open-drawer-v8">All sections</button></div><section class="section clean-section-v8">${planHTML(v)}</section>`;
+};
+
+renderSpend=function renderSpendV8(){
+  const v=SPEND_META_V8[state.spendView]?state.spendView:"expenses",m=SPEND_META_V8[v];
+  state.spendView=v;
+  main.innerHTML=`<div class="clean-page-head-v8"><div><p class="eyebrow">MONEY</p><h1>${m[0]} ${esc(m[1])}</h1><p>${esc(m[2])}</p></div><button class="btn soft" data-action="open-drawer-v8">All sections</button></div><section class="section clean-section-v8">${spendHTML(v)}</section>`;
+};
+
+renderTrip=function renderTripV8(){
+  const v=TRIP_META_V8[state.tripView]?state.tripView:"memories",m=TRIP_META_V8[v];
+  state.tripView=v;
+  main.innerHTML=`<div class="clean-page-head-v8"><div><p class="eyebrow">${["memories","timeline","food","highlights","visited","scrapbook","recap"].includes(v)?"REMEMBER":"TRIP"}</p><h1>${m[0]} ${esc(m[1])}</h1><p>${esc(m[2])}</p></div><button class="btn soft" data-action="open-drawer-v8">All sections</button></div><section class="section clean-section-v8">${tripHTML(v)}</section>`;
+};
+
+/* ---------- Clean production settings ---------- */
+function navSettingsHTMLV8(){
+  const s=state.settings;
+  const selectedTabs=new Set(s.bottomTabsV8||[]);
+  const quick=new Set(s.quickActionsV8||[]);
+  return `<form id="navigationSettingsFormV8" class="form-grid">
+    <div class="settings-subhead-v8"><h3>Bottom navigation</h3><p>Choose 3–5 destinations. Today stays special wherever you place it.</p></div>
+    <div class="setting-choice-grid-v8">${BOTTOM_TAB_OPTIONS_V8.map(x=>`<label><input type="checkbox" name="bottomTabs" value="${x.id}" ${selectedTabs.has(x.id)?"checked":""}><span>${x.icon}</span><strong>${x.label}</strong></label>`).join("")}</div>
+    <div class="settings-subhead-v8"><h3>Quick Add buttons</h3><p>Choose up to 6 shortcuts for Home.</p></div>
+    <div class="setting-choice-grid-v8">${QUICK_ACTIONS_V8.map(x=>`<label><input type="checkbox" name="quickActions" value="${x.id}" ${quick.has(x.id)?"checked":""}><span>${x.icon}</span><strong>${x.label}</strong></label>`).join("")}</div>
+    <div class="form-row two"><div><label>LAYOUT DENSITY</label><select name="densityV8"><option value="comfortable" ${s.densityV8==="comfortable"?"selected":""}>Comfortable</option><option value="compact" ${s.densityV8==="compact"?"selected":""}>Compact</option></select></div><div><label>MOTION</label><select name="reduceMotionV8"><option value="system" ${s.reduceMotionV8==="system"?"selected":""}>Follow device</option><option value="reduce" ${s.reduceMotionV8==="reduce"?"selected":""}>Reduce motion</option></select></div></div>
+    <div class="switch-row"><span><strong>Floating Quick Add</strong><small>Show the + button while a trip is open.</small></span><label class="switch"><input name="showFabV8" type="checkbox" ${s.showFabV8?"checked":""}><span></span></label></div>
+    <button class="btn primary">Save navigation</button>
+  </form>`;
+}
+
+settingsHTML=function settingsHTMLV8(){
+  const s=state.settings,n=s.notifications||{};
+  return `<div class="settings-stack-v3 settings-v8">
+    <section class="card settings-card-v3">
+      <div class="section-title"><h3>Personal preferences</h3></div>
+      <form id="settingsFormV3" class="form-grid">
+        <div class="form-row two"><div><label>YOUR NAME</label><input name="travelerName" value="${esc(s.travelerName||"")}" placeholder="Optional"></div><div><label>HOME COUNTRY</label><input name="homeCountry" value="${esc(s.homeCountry||"")}" placeholder="Optional"></div></div>
+        <div class="form-row two"><div><label>HOME CURRENCY</label><select name="homeCurrency">${currencyOptions(s.homeCurrency)}</select></div><div><label>DEFAULT TRIP CURRENCY</label><select name="defaultTripCurrency">${currencyOptions(s.defaultTripCurrency)}</select></div></div>
+        <div class="form-row two"><div><label>DATE FORMAT</label><select name="dateFormat">${(window.ICHIGO_DATA?.dateFormats||[]).map(x=>`<option value="${x.id}" ${s.dateFormat===x.id?"selected":""}>${esc(x.label)}</option>`).join("")}</select></div><div><label>TIME FORMAT</label><select name="timeFormat">${(window.ICHIGO_DATA?.timeFormats||[]).map(x=>`<option value="${x.id}" ${s.timeFormat===x.id?"selected":""}>${esc(x.label)}</option>`).join("")}</select></div></div>
+        <div class="form-row two"><div><label>PREFERRED MAP</label><select name="mapApp">${(window.ICHIGO_DATA?.mapApps||[]).map(x=>`<option value="${x.id}" ${s.mapApp===x.id?"selected":""}>${esc(x.label)}</option>`).join("")}</select></div><div><label>APP THEME</label><select name="theme">${(window.ICHIGO_DATA?.themePresets||[]).map(x=>`<option value="${x.id}" ${s.theme===x.id?"selected":""}>${esc(x.label)}</option>`).join("")}</select></div></div>
+        <button class="btn primary">Save preferences</button>
+      </form>
+    </section>
+
+    <section class="card settings-card-v3"><div class="section-title"><h3>Navigation & appearance</h3></div>${navSettingsHTMLV8()}</section>
+
+    <section class="card settings-card-v3">
+      <div class="section-title"><h3>Reminders</h3><span class="meta">while Ichigo is open</span></div>
+      <div class="form-row two"><div><label>ACTIVITY LEAD</label><select id="activityLeadV3">${(window.ICHIGO_DATA?.reminderLeadOptions||[]).map(x=>`<option value="${x}" ${Number(n.activityLead)===x?"selected":""}>${x} min</option>`).join("")}</select></div><div><label>BOOKING LEAD</label><select id="bookingLeadV3">${(window.ICHIGO_DATA?.reminderLeadOptions||[]).map(x=>`<option value="${x}" ${Number(n.bookingLead)===x?"selected":""}>${x} min</option>`).join("")}</select></div></div>
+      <div class="btn-row wrap-v3"><button class="btn soft" data-action="enable-notifications-v3">Enable reminders</button><button class="btn" data-action="save-reminder-settings-v3">Save timing</button></div>
+    </section>
+
+    <section class="card settings-card-v3">
+      <div class="section-title"><h3>Data & privacy</h3></div>
+      <p class="meta">Your personal Ichigo data remains local unless you export it yourself.</p>
+      <div class="btn-row wrap-v3"><button class="btn soft" data-action="export-full-backup-v3">Export full backup</button><button class="btn" data-action="import-full-backup-v3">Restore backup</button><button class="btn" data-action="navigate-route-v8" data-route="storage">Storage</button><button class="btn" data-action="navigate-route-v8" data-route="offline">Offline Center</button></div>
+      <input id="importFullBackupV3" type="file" accept="application/json" hidden>
+    </section>
+
+    ${aboutIchigoCardV74()}
+    <section class="card settings-card-v3"><div class="section-title"><h3>About & updates</h3><span class="badge gray">v${APP_VERSION_V8}</span></div><div class="btn-row wrap-v3"><button class="btn soft" data-action="show-whats-new-v74">What’s New</button><button class="btn" data-action="force-update-check-v3">Check for update</button><button class="btn" data-action="install-app">Install Ichigo</button></div></section>
+
+    <details class="card advanced-settings-v8"><summary>Advanced</summary><div class="advanced-settings-body-v8"><p class="meta">Recovery and diagnostics are kept here so normal travel screens stay clean.</p><div class="btn-row wrap-v3"><button class="btn" data-action="run-selftest-v3">Run diagnostics</button><button class="btn" data-action="copy-diagnostics-v3">Copy diagnostics</button><button class="btn" data-action="clear-caches-v3">Clear app caches</button></div><button class="btn danger full" data-action="reset-demo">Erase all local Ichigo data</button></div></details>
+  </div>`;
+};
+
+/* Rename developer-style diagnostics page if reached from older state. */
+releaseHTMLV7=function diagnosticsHTMLV8(){
+  return `<div class="section-title"><h3>App Diagnostics</h3><button data-action="run-release-check-v7">Run again</button></div><div class="notice-card"><span class="notice-icon">🛠️</span><span><strong>Recovery diagnostics</strong><p>Checks local storage, media storage, the installed app shell and data references.</p></span></div><div id="releaseCheckBodyV7" class="release-check-v7"><div class="storage-loading-v7">Running checks…</div></div>`;
+};
+
+
+/* Close the drawer before an action opens a modal or changes screen.
+   This prevents the drawer from sitting above a newly-opened modal. */
+document.addEventListener("click",event=>{
+  const el=event.target.closest(".drawer-v8 [data-action]");
+  if(!el)return;
+  if(["close-drawer-v8","toggle-drawer-pin-v8"].includes(el.dataset.action))return;
+  drawerOpenV8=false;
+  document.body.classList.remove("drawer-open-v8");
+  document.querySelector(".drawer-v8")?.classList.remove("open");
+  document.querySelector(".drawer-backdrop-v8")?.classList.remove("open");
+},true);
+
+document.addEventListener("click",event=>{
+  const el=event.target.closest('[data-action="navigate-explore-v8"]');
+  if(!el)return;
+  exploreModeV73=true;
+  state.currentView=el.dataset.view||"home";
+  save();closeDrawerV8();render();
+});
+
+/* ---------- Actions ---------- */
+document.addEventListener("click",event=>{
+  const el=event.target.closest("[data-action]");if(!el)return;
+  const a=el.dataset.action;
+
+  if(a==="open-drawer-v8"){event.preventDefault();openDrawerV8()}
+  if(a==="close-drawer-v8"){event.preventDefault();closeDrawerV8()}
+  if(a==="navigate-route-v8"){event.preventDefault();navigateV8(el.dataset.route)}
+  if(a==="toggle-drawer-pin-v8"){event.preventDefault();event.stopPropagation();toggleDrawerPinV8(el.dataset.route)}
+
+  if(a==="add-custom-list-v8")openModal("New Travel List",customListFormV8())
+  if(a==="create-list-template-v8"){
+    const t=trip();
+    t.customLists.push({id:uuid(),name:el.dataset.name,icon:el.dataset.icon,kind:el.dataset.kind,note:"",items:[],createdAt:Date.now()});
+    save();render();notify(`${el.dataset.name} list created`);
+  }
+  if(a==="edit-custom-list-v8"){const list=trip().customLists.find(x=>x.id===el.dataset.id);if(list)openModal("Edit Travel List",customListFormV8(list))}
+  if(a==="delete-custom-list-v8"){
+    const list=trip().customLists.find(x=>x.id===el.dataset.listId);
+    if(list&&confirm(`Delete “${list.name}” and all its items?`)){trip().customLists=trip().customLists.filter(x=>x.id!==list.id);save();render();notify("List deleted")}
+  }
+  if(a==="add-custom-list-item-v8"){const list=trip().customLists.find(x=>x.id===el.dataset.listId);if(list)openModal(`Add to ${list.name}`,customListItemFormV8(list))}
+  if(a==="edit-custom-list-item-v8"){const list=trip().customLists.find(x=>x.id===el.dataset.listId),item=list?.items.find(x=>x.id===el.dataset.id);if(list&&item)openModal(`Edit ${list.name}`,customListItemFormV8(list,item))}
+  if(a==="toggle-list-favorite-v8"){const list=trip().customLists.find(x=>x.id===el.dataset.listId);if(list){list.items.sort((a,b)=>Number(b.favorite)-Number(a.favorite)||Number(a.done)-Number(b.done)||a.createdAt-b.createdAt);save();render();notify("Favorites moved to the top")}}
+
+  if(a==="set-day-board-date-v8"){state.activeItineraryDate=el.dataset.date;save();render()}
+  if(a==="edit-day-board-v8"){const date=el.dataset.date,b=trip().dayBoards[date]||{};openModal(`Day ${dayNo(date)} Board`,dayBoardFormV8(date,b))}
+
+  if(a==="add-time-zone-v8")openModal("Add Time Zone",timeZoneFormV8())
+  if(a==="edit-time-zone-v8"){const z=trip().timeZones.find(x=>x.id===el.dataset.id);if(z)openModal("Edit Time Zone",timeZoneFormV8(z))}
+  if(a==="delete-time-zone-v8"){const z=trip().timeZones.find(x=>x.id===el.dataset.id);if(z&&confirm(`Remove ${z.label||z.timeZone}?`)){trip().timeZones=trip().timeZones.filter(x=>x.id!==z.id);save();render()}}
+
+  if(a==="install-app")install();
+});
+
+document.addEventListener("change",event=>{
+  const x=event.target;
+  if(x.dataset.action==="toggle-custom-list-item-v8"){
+    const list=trip().customLists.find(l=>l.id===x.dataset.listId),item=list?.items.find(i=>i.id===x.dataset.id);
+    if(item){item.done=x.checked;save();render()}
+  }
+});
+
+document.addEventListener("submit",event=>{
+  const f=event.target;
+  if(!["customListFormV8","customListItemFormV8","dayBoardFormV8","timeZoneFormV8","navigationSettingsFormV8"].includes(f.id))return;
+  event.preventDefault();
+  const fd=new FormData(f),d=Object.fromEntries(fd.entries()),t=trip();
+
+  if(f.id==="customListFormV8"){
+    const old=f.dataset.editId?t.customLists.find(x=>x.id===f.dataset.editId):null,item=old||{id:uuid(),items:[],createdAt:Date.now()};
+    Object.assign(item,{name:d.name.trim(),icon:d.icon.trim()||"📝",kind:d.kind,note:d.note.trim()});
+    if(!old)t.customLists.push(item);
+    save();closeModal();render();notify(old?"List updated":"List created");
+  }
+
+  if(f.id==="customListItemFormV8"){
+    const list=t.customLists.find(x=>x.id===f.dataset.listId);if(!list)return;
+    const old=f.dataset.editId?list.items.find(x=>x.id===f.dataset.editId):null,item=old||{id:uuid(),done:false,createdAt:Date.now()};
+    Object.assign(item,{name:d.name.trim(),note:d.note.trim(),tag:d.tag.trim(),url:d.url.trim(),estimatedCost:Number(d.estimatedCost||0),favorite:!!d.favorite});
+    if(!old)list.items.push(item);
+    save();closeModal();render();notify(old?"Item updated":"Item added");
+  }
+
+  if(f.id==="dayBoardFormV8"){
+    t.dayBoards[f.dataset.date]={emoji:d.emoji.trim()||"🌸",title:d.title.trim(),theme:d.theme.trim(),wakeTime:d.wakeTime||"",returnTime:d.returnTime||"",note:d.note.trim(),outfit:d.outfit.trim(),weatherNote:d.weatherNote.trim(),reminder:d.reminder.trim()};
+    save();closeModal();render();notify("Day Board saved");
+  }
+
+  if(f.id==="timeZoneFormV8"){
+    const zone=d.timeZone.trim();
+    if(!validTimeZoneV8(zone)){alert("That time zone is not recognized. Try an IANA zone such as Asia/Tokyo or Europe/Paris.");return}
+    const old=f.dataset.editId?t.timeZones.find(x=>x.id===f.dataset.editId):null,item=old||{id:uuid()};
+    Object.assign(item,{emoji:d.emoji.trim()||"🕒",label:d.label.trim(),timeZone:zone});
+    if(!old)t.timeZones.push(item);
+    save();closeModal();render();notify(old?"Time zone updated":"Time zone added");
+  }
+
+  if(f.id==="navigationSettingsFormV8"){
+    let tabs=fd.getAll("bottomTabs").filter(id=>BOTTOM_TAB_OPTIONS_V8.some(x=>x.id===id));
+    if(tabs.length<3){alert("Choose at least 3 bottom navigation tabs.");return}
+    if(tabs.length>5)tabs=tabs.slice(0,5);
+    let quick=fd.getAll("quickActions").filter(id=>QUICK_ACTIONS_V8.some(x=>x.id===id)).slice(0,6);
+    state.settings.bottomTabsV8=tabs;
+    state.settings.quickActionsV8=quick.length?quick:["activity","place","expense","memory"];
+    state.settings.densityV8=d.densityV8||"comfortable";
+    state.settings.reduceMotionV8=d.reduceMotionV8||"system";
+    state.settings.showFabV8=!!d.showFabV8;
+    save();render();notify("Navigation updated");
+  }
+});
+
+document.addEventListener("keydown",event=>{
+  if(event.key==="Escape"&&drawerOpenV8)closeDrawerV8();
+});
+
+/* ---------- Final render wrapper ---------- */
+const renderBeforeV8=render;
+render=function renderIchigo8(){
+  clearInterval(timezoneTimerV8);timezoneTimerV8=null;
+  renderBeforeV8();
+  syncChromeV8();
+  if((state.trips||[]).length)startTimezoneTimerV8();
+};
+
+
+/* ---------- Ichigo 8 startup ---------- */
+const previousAppVersionV8 = state.appVersion || "";
 const legacyDemoRemovedV71 = cleanLegacyDemoV71();
-migrateAllTripsV7(true);
-state.appVersion = APP_VERSION_V71;
+migrateAllTripsV8(true);
+state.appVersion = APP_VERSION_V8;
+
 if (state.trips.length) {
   applyLaunchShortcut();
   applyAppearanceV3();
@@ -4313,21 +5171,20 @@ if (state.trips.length) {
   state.currentView = "home";
   document.documentElement.dataset.theme = state.settings?.theme || "strawberry";
 }
+
 save();
 render();
 setupServiceWorkerUpdatesV3();
 
-const lastSeenVersionV74 = localStorage.getItem("ichigo-last-seen-app-version");
-if (!lastSeenVersionV74) {
-  /* Existing installs upgrading from an earlier known app version get the
-     first What's New note. Brand-new installs simply record this version. */
-  if (previousAppVersionV74 && previousAppVersionV74 !== APP_VERSION_V71) {
-    localStorage.setItem("ichigo-last-seen-app-version",previousAppVersionV74);
+const lastSeenVersionV8 = localStorage.getItem("ichigo-last-seen-app-version");
+if (!lastSeenVersionV8) {
+  if (previousAppVersionV8 && previousAppVersionV8 !== APP_VERSION_V8) {
+    localStorage.setItem("ichigo-last-seen-app-version",previousAppVersionV8);
     setTimeout(()=>showWhatsNewV74(false),500);
   } else {
-    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V71);
+    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V8);
   }
-} else if (lastSeenVersionV74 !== APP_VERSION_V71) {
+} else if (lastSeenVersionV8 !== APP_VERSION_V8) {
   setTimeout(()=>showWhatsNewV74(false),500);
 }
 

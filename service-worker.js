@@ -1,17 +1,17 @@
 /* Ichigo Build 7 — Personal Release-Ready Offline Layer */
-const CACHE_NAME = "ichigo-build7-4-about-updates-v1";
-const RUNTIME_CACHE = "ichigo-build7-4-runtime-v1";
-const TILE_CACHE = "ichigo-build7-4-maptiles-v1";
+const CACHE_NAME = "ichigo-build8-mega-v1";
+const RUNTIME_CACHE = "ichigo-build8-runtime-v1";
+const TILE_CACHE = "ichigo-build8-maptiles-v1";
 
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./style.css?v=20260812-build74-about-updates",
-  "./app.js?v=20260812-build74-about-updates",
-  "./data/data.js?v=20260812-build74-about-updates",
-  "./data/db.js?v=20260812-build74-about-updates",
+  "./style.css?v=20260812-build8-mega",
+  "./app.js?v=20260812-build8-mega",
+  "./data/data.js?v=20260812-build8-mega",
+  "./data/db.js?v=20260812-build8-mega",
   "./manifest.json",
-  "./manifest.json?v=20260812-build74-about-updates",
+  "./manifest.json?v=20260812-build8-mega",
   "./icons/apple-touch-icon-v41.png",
   "./icons/icon-192-v41.png",
   "./icons/icon-512-v41.png",
