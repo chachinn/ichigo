@@ -5158,11 +5158,537 @@ render=function renderIchigo8(){
 };
 
 
-/* ---------- Ichigo 8 startup ---------- */
-const previousAppVersionV8 = state.appVersion || "";
+
+/* =====================================================================
+   ICHIGO 9 — PLAYFUL TRAVEL EDITION
+   Fun, personal, local-first features. Still no Supabase and no seeded
+   trip content.
+
+   NEW:
+   • Adventure Jar / Pick for Me
+   • Backup Plans
+   • Neighborhood Bundles
+   • Trip Bingo
+   • Photo Missions
+   • Food Passport
+   • Stamp Book
+   • Trip Capsule
+   • Travel Awards
+   • Tiny Achievements derived from real user data
+   • Much richer hamburger, including no-trip Explore mode
+   ===================================================================== */
+
+const APP_VERSION_V9 = "9.0.0";
+const APP_SCHEMA_VERSION_V9 = 9;
+const CACHE_VERSION_V9 = "ichigo-build9-playful-v1";
+
+Object.assign(PLAN_META_V8,{
+  jar:["🎲","Adventure Jar","Let Ichigo pick from the places and ideas you already saved."],
+  backup:["☔","Backup Plans","Keep rainy-day, low-energy and just-in-case alternatives ready."],
+  neighborhoods:["🧺","Neighborhood Bundles","Group saved places into little area-based mini days."]
+});
+
+Object.assign(TRIP_META_V8,{
+  bingo:["🎯","Trip Bingo","Make your own little travel bingo board and tick it off as you go."],
+  photomissions:["📷","Photo Missions","Create playful photo challenges for the trip."],
+  foodpassport:["🍓","Food Passport","Collect foods, cafés and restaurants you tried, with your own ratings."],
+  stamps:["🛂","Stamp Book","Turn visited places into a personal stamp collection."],
+  capsule:["💌","Trip Capsule","Write something before the trip and open it again when the trip is over."],
+  awards:["🏆","Travel Awards","Give your trip its own silly and sentimental end-of-trip awards."],
+  achievements:["✨","Tiny Achievements","Little milestones derived from the travel data you actually created."]
+});
+
+[
+  {group:"Fun & Discover",id:"jar",icon:"🎲",label:"Adventure Jar",view:"plan",sub:"jar"},
+  {group:"Fun & Discover",id:"backup",icon:"☔",label:"Backup Plans",view:"plan",sub:"backup"},
+  {group:"Fun & Discover",id:"neighborhoods",icon:"🧺",label:"Neighborhood Bundles",view:"plan",sub:"neighborhoods"},
+  {group:"Fun & Discover",id:"bingo",icon:"🎯",label:"Trip Bingo",view:"trip",sub:"bingo"},
+  {group:"Fun & Discover",id:"photomissions",icon:"📷",label:"Photo Missions",view:"trip",sub:"photomissions"},
+  {group:"Fun & Discover",id:"foodpassport",icon:"🍓",label:"Food Passport",view:"trip",sub:"foodpassport"},
+  {group:"Fun & Discover",id:"stamps",icon:"🛂",label:"Stamp Book",view:"trip",sub:"stamps"},
+  {group:"Fun & Discover",id:"capsule",icon:"💌",label:"Trip Capsule",view:"trip",sub:"capsule"},
+  {group:"Fun & Discover",id:"awards",icon:"🏆",label:"Travel Awards",view:"trip",sub:"awards"},
+  {group:"Fun & Discover",id:"achievements",icon:"✨",label:"Tiny Achievements",view:"trip",sub:"achievements"}
+].forEach(route=>{
+  if(!ROUTES_V8.some(x=>x.id===route.id))ROUTES_V8.splice(2,0,route);
+});
+
+function ensureTripV9(t){
+  t=ensureTripV8(t);
+  if(!t)return t;
+
+  t.adventureJar ||= [];
+  t.backupPlans ||= [];
+  t.neighborhoodBundles ||= [];
+  t.tripBingo ||= [];
+  t.photoMissions ||= [];
+  t.foodPassport ||= [];
+  t.tripCapsule ||= {before:"",after:"",sealedAt:"",openedAt:""};
+  t.travelAwards ||= [];
+
+  const normalize=(arr,fn)=>arr.forEach(fn);
+
+  normalize(t.adventureJar,x=>{
+    x.id ||= uuid(); x.title ||= ""; x.note ||= ""; x.emoji ||= "🎲";
+    x.done ??= false; x.favorite ??= false; x.createdAt ||= Date.now();
+  });
+
+  normalize(t.backupPlans,x=>{
+    x.id ||= uuid(); x.title ||= ""; x.when ||= "Anytime"; x.note ||= "";
+    x.link ||= ""; x.done ??= false; x.createdAt ||= Date.now();
+  });
+
+  normalize(t.neighborhoodBundles,x=>{
+    x.id ||= uuid(); x.name ||= ""; x.emoji ||= "🧺"; x.placeIds ||= [];
+    x.note ||= ""; x.createdAt ||= Date.now();
+  });
+
+  normalize(t.tripBingo,x=>{
+    x.id ||= uuid(); x.text ||= ""; x.done ??= false; x.createdAt ||= Date.now();
+  });
+
+  normalize(t.photoMissions,x=>{
+    x.id ||= uuid(); x.text ||= ""; x.done ??= false; x.memoryId ||= "";
+    x.createdAt ||= Date.now();
+  });
+
+  normalize(t.foodPassport,x=>{
+    x.id ||= uuid(); x.name ||= ""; x.place ||= ""; x.rating=Number(x.rating||0);
+    x.note ||= ""; x.date ||= ""; x.favorite ??= false; x.createdAt ||= Date.now();
+  });
+
+  normalize(t.travelAwards,x=>{
+    x.id ||= uuid(); x.title ||= ""; x.winner ||= ""; x.note ||= "";
+    x.emoji ||= "🏆"; x.createdAt ||= Date.now();
+  });
+
+  return t;
+}
+
+function ensureStateV9(){
+  ensureStateV8();
+  state.schemaVersion=Number(state.schemaVersion||1);
+  return state;
+}
+
+function migrateAllTripsV9(persist=false){
+  ensureStateV9();
+  const before=Number(state.schemaVersion||1);
+  state.trips=(state.trips||[]).map(ensureTripV9);
+  state.migrations ||= [];
+  if(before<9&&!state.migrations.some(x=>x.version===9)){
+    state.migrations.push({
+      version:9,at:Date.now(),
+      note:"Playful Travel Edition: Adventure Jar, Backup Plans, Neighborhood Bundles, Bingo, Photo Missions, Food Passport, Stamp Book, Capsule, Awards and achievements"
+    });
+  }
+  state.schemaVersion=APP_SCHEMA_VERSION_V9;
+  state.appVersion=APP_VERSION_V9;
+  if(persist)save();
+}
+
+trip=function tripV9(){
+  ensureStateV9();
+  return ensureTripV9(state.trips.find(x=>x.id===state.currentTripId)||state.trips[0]);
+};
+
+save=function saveV9(){
+  ensureStateV9();
+  state.schemaVersion=APP_SCHEMA_VERSION_V9;
+  state.appVersion=APP_VERSION_V9;
+  state.updatedAt=Date.now();
+  setSaveStatusV7("Saving…","saving");
+  try{
+    const raw=JSON.stringify(state);
+    localStorage.setItem(STORE,raw);
+    clearTimeout(saveStatusTimerV7);
+    saveStatusTimerV7=setTimeout(()=>setSaveStatusV7("Saved ✓","saved"),220);
+  }catch(error){
+    logErrorV7(error,"save-v9");
+    setSaveStatusV7("Save failed","error");
+    setTimeout(()=>notify("Ichigo couldn't save this change. Export a backup before making more edits."),50);
+  }
+};
+
+/* ---------- Fun drawer ---------- */
+function funCountV9(route){
+  if(!(state.trips||[]).length)return "";
+  const t=trip();
+  const map={
+    jar:t.adventureJar.length,
+    backup:t.backupPlans.length,
+    neighborhoods:t.neighborhoodBundles.length,
+    bingo:t.tripBingo.length,
+    photomissions:t.photoMissions.length,
+    foodpassport:t.foodPassport.length,
+    stamps:t.places.filter(x=>x.visited).length,
+    capsule:(t.tripCapsule.before||t.tripCapsule.after)?1:0,
+    awards:t.travelAwards.length,
+    achievements:achievementRowsV9(t).filter(x=>x.done).length
+  };
+  return map[route.id]??"";
+}
+
+drawerRouteRowV8=function drawerRouteRowV9(route){
+  const pinned=(state.settings.drawerPinsV8||[]).includes(route.id);
+  const count=funCountV9(route);
+  return `<div class="drawer-route-row-v8 ${routeActiveV8(route)?"active":""}">
+    <button class="drawer-route-v8" data-action="navigate-route-v8" data-route="${route.id}">
+      <span>${route.icon}</span><strong>${esc(route.label)}</strong>${count!==""?`<em class="drawer-count-v9">${count}</em>`:""}
+    </button>
+    <button class="drawer-pin-v8 ${pinned?"pinned":""}" data-action="toggle-drawer-pin-v8" data-route="${route.id}" aria-label="${pinned?"Unpin":"Pin"} ${esc(route.label)}">${pinned?"★":"☆"}</button>
+  </div>`;
+};
+
+const drawerHTMLBeforeV9=drawerHTMLV8;
+drawerHTMLV8=function drawerHTMLPlayfulV9(){
+  if((state.trips||[]).length)return drawerHTMLBeforeV9();
+
+  const exploreRoutes=[
+    ["home","⌂","Home"],["plan","▣","Planning"],["today","🍓","Today Mode"],
+    ["spend","◉","Money"],["together","👥","Together"],["trip","▤","Memories"]
+  ];
+
+  const fun=[
+    ["🎲","Adventure Jar"],["🎯","Trip Bingo"],["📷","Photo Missions"],
+    ["🍓","Food Passport"],["🛂","Stamp Book"],["💌","Trip Capsule"]
+  ];
+
+  return `<div class="drawer-backdrop-v8 ${drawerOpenV8?"open":""}" data-action="close-drawer-v8"></div>
+    <aside class="drawer-v8 ${drawerOpenV8?"open":""}" aria-label="Ichigo menu">
+      <div class="drawer-head-v8">
+        <img src="./icons/icon-192-v41.png" alt="">
+        <div><strong>ichigo</strong><small>Explore before your first trip</small></div>
+        <button class="icon-btn" data-action="close-drawer-v8" aria-label="Close menu">✕</button>
+      </div>
+      <div class="drawer-scroll-v8">
+        <section class="drawer-welcome-v9">
+          <p class="eyebrow">START ANY WAY YOU LIKE</p>
+          <h2>There’s more inside Ichigo. 🍓</h2>
+          <p>Browse the app first, or create an empty trip when you're ready.</p>
+          <button class="btn primary full" data-action="new-trip">＋ Create Trip</button>
+        </section>
+
+        <section class="drawer-group-v8">
+          <h3>Explore the app</h3>
+          <div class="drawer-explore-grid-v9">${exploreRoutes.map(([view,icon,label])=>`<button data-action="navigate-explore-v8" data-view="${view}"><span>${icon}</span><strong>${label}</strong></button>`).join("")}</div>
+        </section>
+
+        <section class="drawer-group-v8">
+          <h3>Fun things waiting for a trip</h3>
+          <div class="drawer-fun-preview-v9">${fun.map(([icon,label])=>`<div><span>${icon}</span><strong>${label}</strong><small>Starts empty</small></div>`).join("")}</div>
+        </section>
+
+        ${aboutIchigoCardV74(true)}
+      </div>
+      <div class="drawer-footer-v8">
+        <button data-action="show-whats-new-v74">What’s New</button>
+        <button data-action="install-app">Install</button>
+        <span>${navigator.onLine?"● Online":"○ Offline"} · v${APP_VERSION_V9}</span>
+      </div>
+    </aside>`;
+};
+
+/* ---------- Adventure Jar ---------- */
+function adventureJarHTMLV9(){
+  const t=trip(),pool=t.adventureJar.filter(x=>!x.done);
+  return `<div class="section-title"><h3>Adventure Jar</h3><button data-action="add-jar-v9">＋ Idea</button></div>
+    <section class="jar-hero-v9">
+      <div class="jar-berry-v9">🎲</div>
+      <div><p class="eyebrow">CAN'T DECIDE?</p><h2>Let Ichigo pick.</h2><p>Add places, snacks, neighborhoods, tiny activities or whatever sounds fun. The jar only uses things you added.</p></div>
+      <button class="btn primary" data-action="pick-jar-v9" ${pool.length?"":"disabled"}>Pick for me</button>
+    </section>
+    ${t.adventureJar.length?`<div class="jar-grid-v9">${t.adventureJar.map(x=>`<article class="card jar-card-v9 ${x.done?"done":""}">
+      <span>${esc(x.emoji||"🎲")}</span><div><strong>${esc(x.title)}</strong><p>${esc(x.note||"")}</p></div>
+      <button class="tiny-btn" data-action="toggle-jar-done-v9" data-id="${x.id}">${x.done?"Restore":"Done"}</button>
+      <button class="tiny-btn danger" data-action="delete-jar-v9" data-id="${x.id}">Delete</button>
+    </article>`).join("")}</div>`:empty("🎲","Your Adventure Jar is empty","Add only the little possibilities you actually want Ichigo to choose from.")}`;
+}
+
+function jarFormV9(item={}){
+  return `<form id="jarFormV9" data-edit-id="${item.id||""}" class="form-grid">
+    <div class="form-row two"><div><label>EMOJI</label><input name="emoji" value="${esc(item.emoji||"🎲")}" maxlength="4"></div><div><label>IDEA</label><input name="title" required value="${esc(item.title||"")}" placeholder="Tiny adventure"></div></div>
+    <div class="form-row"><label>NOTE</label><textarea name="note" placeholder="Optional">${esc(item.note||"")}</textarea></div>
+    <button class="btn primary">Add to jar</button>
+  </form>`;
+}
+
+function pickJarV9(){
+  const pool=trip().adventureJar.filter(x=>!x.done);
+  if(!pool.length){notify("Add something to the jar first.");return}
+  const pick=pool[Math.floor(Math.random()*pool.length)];
+  openModal("Ichigo picked…",`<div class="jar-pick-v9"><span>${esc(pick.emoji||"🎲")}</span><p class="eyebrow">YOUR LITTLE ADVENTURE</p><h2>${esc(pick.title)}</h2><p>${esc(pick.note||"")}</p><div class="btn-row"><button class="btn primary" data-action="jar-accept-v9" data-id="${pick.id}">Let's do it</button><button class="btn soft" data-action="pick-jar-v9">Pick again</button></div></div>`);
+}
+
+/* ---------- Backup Plans ---------- */
+function backupPlansHTMLV9(){
+  const t=trip(),groups=["Rainy day","Low energy","Closed / sold out","Anytime"];
+  return `<div class="section-title"><h3>Backup Plans</h3><button data-action="add-backup-v9">＋ Backup</button></div>
+    <div class="notice-card"><span class="notice-icon">☔</span><span><strong>Your Plan B drawer</strong><p>Nothing here changes the itinerary automatically. These are simply alternatives you chose in advance.</p></span></div>
+    ${groups.map(g=>{const rows=t.backupPlans.filter(x=>x.when===g);return rows.length?`<section class="section"><div class="section-title"><h3>${g}</h3><span class="meta">${rows.length}</span></div><div class="backup-grid-v9">${rows.map(x=>`<article class="card backup-card-v9"><span>${g==="Rainy day"?"☔":g==="Low energy"?"🌿":g==="Closed / sold out"?"🚪":"✨"}</span><div><strong>${esc(x.title)}</strong><p>${esc(x.note||"")}</p>${x.link?`<a href="${esc(x.link)}" target="_blank" rel="noopener">Open link ↗</a>`:""}</div><button class="tiny-btn danger" data-action="delete-backup-v9" data-id="${x.id}">Delete</button></article>`).join("")}</div></section>`:""}).join("")}
+    ${!t.backupPlans.length?empty("☔","No backup plans yet","Add your own rainy-day, low-energy or just-in-case alternatives."):""}`;
+}
+
+function backupFormV9(){
+  return `<form id="backupFormV9" class="form-grid">
+    <div class="form-row"><label>BACKUP IDEA</label><input name="title" required placeholder="Something you'd actually enjoy"></div>
+    <div class="form-row"><label>USE WHEN</label><select name="when">${["Rainy day","Low energy","Closed / sold out","Anytime"].map(x=>`<option>${x}</option>`).join("")}</select></div>
+    <div class="form-row"><label>NOTE</label><textarea name="note"></textarea></div>
+    <div class="form-row"><label>LINK</label><input name="link" type="url" placeholder="Optional"></div>
+    <button class="btn primary">Save backup</button>
+  </form>`;
+}
+
+/* ---------- Neighborhood Bundles ---------- */
+function neighborhoodBundlesHTMLV9(){
+  const t=trip();
+  return `<div class="section-title"><h3>Neighborhood Bundles</h3><button data-action="add-neighborhood-v9">＋ Bundle</button></div>
+    <p class="page-help-v8">Make little area clusters from places you've already saved—perfect for “we're already nearby, what else is here?” moments.</p>
+    ${t.neighborhoodBundles.length?`<div class="neighborhood-grid-v9">${t.neighborhoodBundles.map(b=>{
+      const places=b.placeIds.map(id=>t.places.find(p=>p.id===id)).filter(Boolean);
+      return `<article class="card neighborhood-card-v9"><div class="neighborhood-head-v9"><span>${esc(b.emoji||"🧺")}</span><div><h3>${esc(b.name)}</h3><p>${esc(b.note||"")}</p></div></div><div class="neighborhood-places-v9">${places.length?places.map(p=>`<span>${p.priority==="Must go"?"❤️":"📍"} ${esc(p.name)}</span>`).join(""):"<small>No places in this bundle yet.</small>"}</div><div class="btn-row"><button class="btn soft" data-action="edit-neighborhood-v9" data-id="${b.id}">Edit</button><button class="btn danger" data-action="delete-neighborhood-v9" data-id="${b.id}">Delete</button></div></article>`;
+    }).join("")}</div>`:empty("🧺","No neighborhood bundles yet","Create your own clusters from saved places.")}`;
+}
+
+function neighborhoodFormV9(item={}){
+  const t=trip(),selected=new Set(item.placeIds||[]);
+  return `<form id="neighborhoodFormV9" data-edit-id="${item.id||""}" class="form-grid">
+    <div class="form-row two"><div><label>EMOJI</label><input name="emoji" value="${esc(item.emoji||"🧺")}" maxlength="4"></div><div><label>NAME</label><input name="name" required value="${esc(item.name||"")}" placeholder="Kichijoji afternoon"></div></div>
+    <div class="form-row"><label>NOTE</label><input name="note" value="${esc(item.note||"")}"></div>
+    <div class="form-row"><label>PLACES</label><div class="multi-choice-v9">${t.places.length?t.places.map(p=>`<label><input type="checkbox" name="placeIds" value="${p.id}" ${selected.has(p.id)?"checked":""}><span>${p.priority==="Must go"?"❤️":"📍"}</span><strong>${esc(p.name)}</strong></label>`).join(""):`<p class="meta">Save some places first.</p>`}</div></div>
+    <button class="btn primary">Save bundle</button>
+  </form>`;
+}
+
+/* ---------- Trip Bingo ---------- */
+function bingoHTMLV9(){
+  const t=trip(),done=t.tripBingo.filter(x=>x.done).length;
+  return `<div class="section-title"><h3>Trip Bingo</h3><button data-action="add-bingo-v9">＋ Square</button></div>
+    <div class="bingo-head-v9"><span>🎯</span><div><strong>${done}/${t.tripBingo.length}</strong><small>completed</small></div></div>
+    ${t.tripBingo.length?`<div class="bingo-grid-v9">${t.tripBingo.map(x=>`<button class="bingo-square-v9 ${x.done?"done":""}" data-action="toggle-bingo-v9" data-id="${x.id}"><span>${x.done?"✓":"○"}</span><strong>${esc(x.text)}</strong></button>`).join("")}</div><button class="btn danger full" style="margin-top:10px" data-action="clear-bingo-v9">Clear board</button>`:empty("🎯","Your bingo board is blank","Add your own funny, specific or sentimental trip moments—nothing is pre-filled.")}`;
+}
+
+function bingoFormV9(){
+  return `<form id="bingoFormV9" class="form-grid"><div class="form-row"><label>BINGO SQUARE</label><input name="text" required placeholder="Something you hope happens"></div><button class="btn primary">Add square</button></form>`;
+}
+
+/* ---------- Photo Missions ---------- */
+function photoMissionsHTMLV9(){
+  const t=trip(),done=t.photoMissions.filter(x=>x.done).length;
+  return `<div class="section-title"><h3>Photo Missions</h3><button data-action="add-photo-mission-v9">＋ Mission</button></div>
+    <div class="photo-mission-progress-v9"><div><i style="width:${t.photoMissions.length?done/t.photoMissions.length*100:0}%"></i></div><strong>${done}/${t.photoMissions.length}</strong></div>
+    ${t.photoMissions.length?`<div class="photo-mission-grid-v9">${t.photoMissions.map(x=>`<article class="card photo-mission-v9 ${x.done?"done":""}"><span>${x.done?"📸":"📷"}</span><div><strong>${esc(x.text)}</strong><p>${x.done?"Mission completed":"Waiting for your shot"}</p></div><button class="tiny-btn" data-action="toggle-photo-mission-v9" data-id="${x.id}">${x.done?"Undo":"Done"}</button><button class="tiny-btn danger" data-action="delete-photo-mission-v9" data-id="${x.id}">Delete</button></article>`).join("")}</div>`:empty("📷","No photo missions yet","Add the kinds of photos you personally want to remember.")}`;
+}
+
+function photoMissionFormV9(){
+  return `<form id="photoMissionFormV9" class="form-grid"><div class="form-row"><label>PHOTO MISSION</label><input name="text" required placeholder="A photo only you would care about"></div><button class="btn primary">Add mission</button></form>`;
+}
+
+/* ---------- Food Passport ---------- */
+function foodPassportHTMLV9(){
+  const t=trip(),rows=[...t.foodPassport].sort((a,b)=>Number(b.favorite)-Number(a.favorite)||(b.date||"").localeCompare(a.date||""));
+  const avg=rows.filter(x=>x.rating).length?rows.filter(x=>x.rating).reduce((s,x)=>s+x.rating,0)/rows.filter(x=>x.rating).length:0;
+  return `<div class="section-title"><h3>Food Passport</h3><button data-action="add-food-passport-v9">＋ Food</button></div>
+    <div class="food-passport-summary-v9"><div><strong>${rows.length}</strong><small>things tried</small></div><div><strong>${avg?avg.toFixed(1):"—"}</strong><small>average rating</small></div><div><strong>${rows.filter(x=>x.favorite).length}</strong><small>favorites</small></div></div>
+    ${rows.length?`<div class="food-passport-grid-v9">${rows.map(x=>`<article class="card food-passport-card-v9 ${x.favorite?"favorite":""}"><div><span>🍓</span><div><strong>${esc(x.name)}</strong><p>${esc(x.place||"")}${x.date?` · ${nice(x.date)}`:""}</p></div></div><div class="food-rating-v9">${[1,2,3,4,5].map(n=>`<span class="${x.rating>=n?"on":""}">★</span>`).join("")}</div>${x.note?`<p>${esc(x.note)}</p>`:""}<div class="btn-row"><button class="tiny-btn" data-action="edit-food-passport-v9" data-id="${x.id}">Edit</button><button class="tiny-btn danger" data-action="delete-food-passport-v9" data-id="${x.id}">Delete</button></div></article>`).join("")}</div>`:empty("🍓","Your Food Passport is empty","Add only the food, cafés and restaurants you actually tried.")}`;
+}
+
+function foodPassportFormV9(item={}){
+  return `<form id="foodPassportFormV9" data-edit-id="${item.id||""}" class="form-grid">
+    <div class="form-row"><label>FOOD / PLACE</label><input name="name" required value="${esc(item.name||"")}" placeholder="What did you try?"></div>
+    <div class="form-row two"><div><label>WHERE</label><input name="place" value="${esc(item.place||"")}"></div><div><label>DATE</label><input name="date" type="date" value="${item.date||""}"></div></div>
+    <div class="form-row"><label>RATING</label><select name="rating"><option value="0">No rating</option>${[1,2,3,4,5].map(n=>`<option value="${n}" ${Number(item.rating)===n?"selected":""}>${"★".repeat(n)}</option>`).join("")}</select></div>
+    <label class="check-inline-v3"><input name="favorite" type="checkbox" ${item.favorite?"checked":""}> ⭐ Favorite</label>
+    <div class="form-row"><label>NOTE</label><textarea name="note">${esc(item.note||"")}</textarea></div>
+    <button class="btn primary">Save to Food Passport</button>
+  </form>`;
+}
+
+/* ---------- Stamp Book ---------- */
+function stampsHTMLV9(){
+  const t=trip(),visited=t.places.filter(x=>x.visited);
+  return `<div class="section-title"><h3>Stamp Book</h3><span class="meta">${visited.length} stamps</span></div>
+    <p class="page-help-v8">Your stamp book is derived from places you marked visited—no separate data entry required.</p>
+    ${visited.length?`<div class="stamp-grid-v9">${visited.map((p,i)=>`<article class="stamp-v9"><div class="stamp-ring-v9"><span>${categoryEmoji(p.category)}</span><small>${String(i+1).padStart(2,"0")}</small></div><strong>${esc(p.name)}</strong><p>${esc(p.area||p.category)}</p></article>`).join("")}</div>`:empty("🛂","No stamps yet","Mark a saved place as visited and it will appear here automatically.")}`;
+}
+
+/* ---------- Trip Capsule ---------- */
+function capsuleHTMLV9(){
+  const t=trip(),c=t.tripCapsule||{},complete=status(t)==="done";
+  return `<div class="capsule-hero-v9"><span>💌</span><p class="eyebrow">TRIP CAPSULE</p><h2>A note across time.</h2><p>Write something before you leave. Come back to it when the trip is over.</p></div>
+    <section class="card capsule-card-v9"><div class="section-title"><h3>Before the trip</h3><span class="meta">${c.before?"written":"empty"}</span></div>${c.before?`<blockquote>${esc(c.before)}</blockquote><button class="btn soft" data-action="edit-capsule-v9" data-part="before">Edit</button>`:`<button class="btn primary" data-action="edit-capsule-v9" data-part="before">Write before-trip note</button>`}</section>
+    <section class="card capsule-card-v9"><div class="section-title"><h3>After the trip</h3><span class="meta">${complete?"ready":"available anytime"}</span></div>${c.after?`<blockquote>${esc(c.after)}</blockquote><button class="btn soft" data-action="edit-capsule-v9" data-part="after">Edit</button>`:`<button class="btn ${complete?"primary":"soft"}" data-action="edit-capsule-v9" data-part="after">Write after-trip note</button>`}</section>`;
+}
+
+function capsuleFormV9(part){
+  const current=trip().tripCapsule?.[part]||"";
+  return `<form id="capsuleFormV9" data-part="${part}" class="form-grid"><div class="form-row"><label>${part==="before"?"BEFORE THE TRIP":"AFTER THE TRIP"}</label><textarea name="text" required style="min-height:180px" placeholder="${part==="before"?"What are you excited about? What do you hope you'll remember?":"What actually mattered? What surprised you?"}">${esc(current)}</textarea></div><button class="btn primary">Save note</button></form>`;
+}
+
+/* ---------- Travel Awards ---------- */
+function awardsHTMLV9(){
+  const t=trip();
+  return `<div class="section-title"><h3>Travel Awards</h3><button data-action="add-award-v9">＋ Award</button></div>
+    <p class="page-help-v8">Make these as silly or sentimental as you want: best meal, best accidental find, prettiest station, most chaotic moment… you decide.</p>
+    ${t.travelAwards.length?`<div class="award-grid-v9">${t.travelAwards.map(x=>`<article class="award-card-v9"><span>${esc(x.emoji||"🏆")}</span><small>${esc(x.title)}</small><strong>${esc(x.winner)}</strong><p>${esc(x.note||"")}</p><button class="tiny-btn danger" data-action="delete-award-v9" data-id="${x.id}">Delete</button></article>`).join("")}</div>`:empty("🏆","No awards yet","Create your own end-of-trip superlatives.")}`;
+}
+function awardFormV9(){
+  return `<form id="awardFormV9" class="form-grid"><div class="form-row two"><div><label>EMOJI</label><input name="emoji" value="🏆" maxlength="4"></div><div><label>AWARD</label><input name="title" required placeholder="Best meal"></div></div><div class="form-row"><label>WINNER</label><input name="winner" required placeholder="Your pick"></div><div class="form-row"><label>NOTE</label><textarea name="note"></textarea></div><button class="btn primary">Add award</button></form>`;
+}
+
+/* ---------- Derived Tiny Achievements ---------- */
+function achievementRowsV9(t=trip()){
+  const completed=t.itinerary.filter(x=>x.completed).length;
+  const visited=t.places.filter(x=>x.visited).length;
+  const favorites=t.memories.filter(x=>x.favorite).length;
+  const food=t.foodPassport.length;
+  const listsDone=t.customLists.reduce((s,l)=>s+l.items.filter(x=>x.done).length,0);
+  return [
+    {icon:"🌱",title:"First little plan",detail:"Complete your first itinerary activity.",done:completed>=1},
+    {icon:"📍",title:"Been there",detail:"Mark your first saved place visited.",done:visited>=1},
+    {icon:"📸",title:"Memory keeper",detail:"Save your first travel memory.",done:t.memories.length>=1},
+    {icon:"⭐",title:"Keeper",detail:"Favorite a memory.",done:favorites>=1},
+    {icon:"🍓",title:"Taste collector",detail:"Add your first Food Passport entry.",done:food>=1},
+    {icon:"☑️",title:"Tiny organizer",detail:"Complete five custom Travel List items.",done:listsDone>=5},
+    {icon:"🗓️",title:"Full little day",detail:"Complete four itinerary activities on one day.",done:allDates(t).some(d=>activitiesOn(d,t).filter(x=>x.completed).length>=4)},
+    {icon:"📖",title:"Story forming",detail:"Save five memories.",done:t.memories.length>=5},
+    {icon:"🛂",title:"Stamp collector",detail:"Visit five saved places.",done:visited>=5},
+    {icon:"💗",title:"Trip ready",detail:"Reach a Trip Health score of 90 or above.",done:healthCheckV4(t).score>=90}
+  ];
+}
+function achievementsHTMLV9(){
+  const rows=achievementRowsV9(),done=rows.filter(x=>x.done).length;
+  return `<div class="section-title"><h3>Tiny Achievements</h3><span class="meta">${done}/${rows.length}</span></div>
+    <p class="page-help-v8">These are calculated from your real trip data. They don't create or change any entries.</p>
+    <div class="achievement-grid-v9">${rows.map(x=>`<article class="achievement-v9 ${x.done?"done":""}"><span>${x.icon}</span><div><strong>${esc(x.title)}</strong><p>${esc(x.detail)}</p></div><b>${x.done?"✓":"○"}</b></article>`).join("")}</div>`;
+}
+
+/* ---------- Plug into existing renderers ---------- */
+const planHTMLBeforeV9=planHTML;
+planHTML=function planHTMLPlayfulV9(v){
+  if(v==="jar")return adventureJarHTMLV9();
+  if(v==="backup")return backupPlansHTMLV9();
+  if(v==="neighborhoods")return neighborhoodBundlesHTMLV9();
+  return planHTMLBeforeV9(v);
+};
+
+const tripHTMLBeforeV9=tripHTML;
+tripHTML=function tripHTMLPlayfulV9(v){
+  if(v==="bingo")return bingoHTMLV9();
+  if(v==="photomissions")return photoMissionsHTMLV9();
+  if(v==="foodpassport")return foodPassportHTMLV9();
+  if(v==="stamps")return stampsHTMLV9();
+  if(v==="capsule")return capsuleHTMLV9();
+  if(v==="awards")return awardsHTMLV9();
+  if(v==="achievements")return achievementsHTMLV9();
+  return tripHTMLBeforeV9(v);
+};
+
+/* ---------- Actions ---------- */
+document.addEventListener("click",event=>{
+  const el=event.target.closest("[data-action]");if(!el||!(state.trips||[]).length)return;
+  const a=el.dataset.action,t=trip();
+
+  if(a==="add-jar-v9")openModal("Add to Adventure Jar",jarFormV9());
+  if(a==="pick-jar-v9")pickJarV9();
+  if(a==="jar-accept-v9"){const x=t.adventureJar.find(x=>x.id===el.dataset.id);if(x){x.done=true;save();closeModal();render();notify("Have fun 🍓")}}
+  if(a==="toggle-jar-done-v9"){const x=t.adventureJar.find(x=>x.id===el.dataset.id);if(x){x.done=!x.done;save();render()}}
+  if(a==="delete-jar-v9"){t.adventureJar=t.adventureJar.filter(x=>x.id!==el.dataset.id);save();render()}
+
+  if(a==="add-backup-v9")openModal("Add Backup Plan",backupFormV9());
+  if(a==="delete-backup-v9"){t.backupPlans=t.backupPlans.filter(x=>x.id!==el.dataset.id);save();render()}
+
+  if(a==="add-neighborhood-v9")openModal("New Neighborhood Bundle",neighborhoodFormV9());
+  if(a==="edit-neighborhood-v9"){const x=t.neighborhoodBundles.find(x=>x.id===el.dataset.id);if(x)openModal("Edit Neighborhood Bundle",neighborhoodFormV9(x))}
+  if(a==="delete-neighborhood-v9"){t.neighborhoodBundles=t.neighborhoodBundles.filter(x=>x.id!==el.dataset.id);save();render()}
+
+  if(a==="add-bingo-v9")openModal("Add Bingo Square",bingoFormV9());
+  if(a==="toggle-bingo-v9"){const x=t.tripBingo.find(x=>x.id===el.dataset.id);if(x){x.done=!x.done;save();render()}}
+  if(a==="clear-bingo-v9"&&confirm("Clear your entire bingo board?")){t.tripBingo=[];save();render()}
+
+  if(a==="add-photo-mission-v9")openModal("Add Photo Mission",photoMissionFormV9());
+  if(a==="toggle-photo-mission-v9"){const x=t.photoMissions.find(x=>x.id===el.dataset.id);if(x){x.done=!x.done;save();render()}}
+  if(a==="delete-photo-mission-v9"){t.photoMissions=t.photoMissions.filter(x=>x.id!==el.dataset.id);save();render()}
+
+  if(a==="add-food-passport-v9")openModal("Food Passport",foodPassportFormV9());
+  if(a==="edit-food-passport-v9"){const x=t.foodPassport.find(x=>x.id===el.dataset.id);if(x)openModal("Edit Food Passport",foodPassportFormV9(x))}
+  if(a==="delete-food-passport-v9"){t.foodPassport=t.foodPassport.filter(x=>x.id!==el.dataset.id);save();render()}
+
+  if(a==="edit-capsule-v9")openModal(el.dataset.part==="before"?"Before the Trip":"After the Trip",capsuleFormV9(el.dataset.part));
+  if(a==="add-award-v9")openModal("Add Travel Award",awardFormV9());
+  if(a==="delete-award-v9"){t.travelAwards=t.travelAwards.filter(x=>x.id!==el.dataset.id);save();render()}
+});
+
+document.addEventListener("submit",event=>{
+  const f=event.target;
+  if(!["jarFormV9","backupFormV9","neighborhoodFormV9","bingoFormV9","photoMissionFormV9","foodPassportFormV9","capsuleFormV9","awardFormV9"].includes(f.id))return;
+  event.preventDefault();
+  const fd=new FormData(f),d=Object.fromEntries(fd.entries()),t=trip();
+
+  if(f.id==="jarFormV9"){
+    t.adventureJar.push({id:uuid(),title:d.title.trim(),note:d.note.trim(),emoji:d.emoji.trim()||"🎲",done:false,favorite:false,createdAt:Date.now()});
+  }
+  if(f.id==="backupFormV9"){
+    t.backupPlans.push({id:uuid(),title:d.title.trim(),when:d.when,note:d.note.trim(),link:d.link.trim(),done:false,createdAt:Date.now()});
+  }
+  if(f.id==="neighborhoodFormV9"){
+    const old=f.dataset.editId?t.neighborhoodBundles.find(x=>x.id===f.dataset.editId):null,item=old||{id:uuid(),createdAt:Date.now()};
+    Object.assign(item,{name:d.name.trim(),emoji:d.emoji.trim()||"🧺",note:d.note.trim(),placeIds:fd.getAll("placeIds")});
+    if(!old)t.neighborhoodBundles.push(item);
+  }
+  if(f.id==="bingoFormV9"){
+    t.tripBingo.push({id:uuid(),text:d.text.trim(),done:false,createdAt:Date.now()});
+  }
+  if(f.id==="photoMissionFormV9"){
+    t.photoMissions.push({id:uuid(),text:d.text.trim(),done:false,memoryId:"",createdAt:Date.now()});
+  }
+  if(f.id==="foodPassportFormV9"){
+    const old=f.dataset.editId?t.foodPassport.find(x=>x.id===f.dataset.editId):null,item=old||{id:uuid(),createdAt:Date.now()};
+    Object.assign(item,{name:d.name.trim(),place:d.place.trim(),date:d.date||"",rating:Number(d.rating||0),favorite:!!d.favorite,note:d.note.trim()});
+    if(!old)t.foodPassport.push(item);
+  }
+  if(f.id==="capsuleFormV9"){
+    const part=f.dataset.part;
+    t.tripCapsule[part]=d.text.trim();
+    if(part==="before"&&!t.tripCapsule.sealedAt)t.tripCapsule.sealedAt=new Date().toISOString();
+    if(part==="after")t.tripCapsule.openedAt=new Date().toISOString();
+  }
+  if(f.id==="awardFormV9"){
+    t.travelAwards.push({id:uuid(),emoji:d.emoji.trim()||"🏆",title:d.title.trim(),winner:d.winner.trim(),note:d.note.trim(),createdAt:Date.now()});
+  }
+
+  save();closeModal();render();notify("Saved ✓");
+});
+
+/* ---------- Home: playful discovery strip ---------- */
+const renderHomeBeforeV9=renderHome;
+renderHome=function renderHomePlayfulV9(){
+  renderHomeBeforeV9();
+  const t=trip(),fun=[
+    ["jar","🎲","Pick for me",`${t.adventureJar.filter(x=>!x.done).length} ideas in your jar`],
+    ["bingo","🎯","Trip Bingo",`${t.tripBingo.filter(x=>x.done).length}/${t.tripBingo.length} squares`],
+    ["photomissions","📷","Photo Missions",`${t.photoMissions.filter(x=>!x.done).length} waiting`],
+    ["foodpassport","🍓","Food Passport",`${t.foodPassport.length} collected`]
+  ];
+  main.insertAdjacentHTML("beforeend",`<section class="section playful-home-v9"><div class="section-title"><h3>Fun little things</h3><button data-action="open-drawer-v8">See all</button></div><div class="playful-strip-v9">${fun.map(([route,icon,title,meta])=>`<button data-action="navigate-route-v8" data-route="${route}"><span>${icon}</span><strong>${title}</strong><small>${meta}</small></button>`).join("")}</div></section>`);
+};
+
+/* ---------- What's New ---------- */
+ICHIGO_WHATS_NEW_V74.version=APP_VERSION_V9;
+ICHIGO_WHATS_NEW_V74.items=[
+  "Added a full Fun & Discover section to the hamburger.",
+  "Added Adventure Jar, Backup Plans and Neighborhood Bundles.",
+  "Added Trip Bingo, Photo Missions, Food Passport and Stamp Book.",
+  "Added Trip Capsule, Travel Awards and derived Tiny Achievements.",
+  "The empty hamburger now previews real Ichigo sections before you create a trip."
+];
+
+
+/* ---------- Ichigo 9 startup ---------- */
+const previousAppVersionV9 = state.appVersion || "";
 const legacyDemoRemovedV71 = cleanLegacyDemoV71();
-migrateAllTripsV8(true);
-state.appVersion = APP_VERSION_V8;
+migrateAllTripsV9(true);
+state.appVersion = APP_VERSION_V9;
 
 if (state.trips.length) {
   applyLaunchShortcut();
@@ -5176,15 +5702,15 @@ save();
 render();
 setupServiceWorkerUpdatesV3();
 
-const lastSeenVersionV8 = localStorage.getItem("ichigo-last-seen-app-version");
-if (!lastSeenVersionV8) {
-  if (previousAppVersionV8 && previousAppVersionV8 !== APP_VERSION_V8) {
-    localStorage.setItem("ichigo-last-seen-app-version",previousAppVersionV8);
+const lastSeenVersionV9 = localStorage.getItem("ichigo-last-seen-app-version");
+if (!lastSeenVersionV9) {
+  if (previousAppVersionV9 && previousAppVersionV9 !== APP_VERSION_V9) {
+    localStorage.setItem("ichigo-last-seen-app-version",previousAppVersionV9);
     setTimeout(()=>showWhatsNewV74(false),500);
   } else {
-    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V8);
+    localStorage.setItem("ichigo-last-seen-app-version",APP_VERSION_V9);
   }
-} else if (lastSeenVersionV8 !== APP_VERSION_V8) {
+} else if (lastSeenVersionV9 !== APP_VERSION_V9) {
   setTimeout(()=>showWhatsNewV74(false),500);
 }
 
