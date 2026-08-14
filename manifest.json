@@ -1,20 +1,13 @@
 {
-  "name": "Ichigo — Trip Planner",
+  "name": "Ichigo — Beauty Inventory",
   "short_name": "Ichigo",
-  "description": "Plan sweet little adventures with itinerary, places, budgets, bookings, offline travel tools, playful trip features and memories.",
-  "id": "./",
-  "start_url": "./index.html",
+  "description": "A local-first skincare and makeup inventory, routine, and beauty diary app.",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "background_color": "#fff7f4",
+  "theme_color": "#fff7f4",
   "orientation": "portrait-primary",
-  "background_color": "#fff9f7",
-  "theme_color": "#ff6f91",
-  "categories": [
-    "travel",
-    "lifestyle",
-    "productivity"
-  ],
-  "lang": "en",
   "icons": [
     {
       "src": "./icons/apple-touch-icon-v41.png",
@@ -41,30 +34,12 @@
       "purpose": "maskable"
     }
   ],
-  "shortcuts": [
-    {
-      "name": "Today",
-      "short_name": "Today",
-      "description": "Open today's trip",
-      "url": "./index.html#today"
-    },
-    {
-      "name": "Trip Inbox",
-      "short_name": "Inbox",
-      "description": "Open the Trip Inbox",
-      "url": "./index.html#inbox"
-    },
-    {
-      "name": "Search",
-      "short_name": "Search",
-      "description": "Search the current trip",
-      "url": "./index.html#search"
-    },
-    {
-      "name": "Add Expense",
-      "short_name": "Expense",
-      "description": "Add an expense",
-      "url": "./index.html#expense"
-    }
-  ]
+  "id": "./",
+  "categories": [
+    "beauty",
+    "lifestyle",
+    "utilities"
+  ],
+  "lang": "en",
+  "dir": "ltr"
 }

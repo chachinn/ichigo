@@ -1,81 +1,77 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#ff6f91">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#fff7f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Ichigo">
-  <meta name="description" content="Ichigo — Plan sweet little adventures.">
-  <meta name="application-name" content="Ichigo">
   <meta name="format-detection" content="telephone=no">
-  <title>Ichigo 🍓</title>
-  <!-- iPhone / iPad Home Screen icon — Build 4.1 uses a new physical filename
-       so iOS cannot reuse the previous icon URL. -->
-  <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon-v41.png">
-
-  <!-- Browser / PWA icons -->
-  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192-v41.png">
-  <link rel="icon" type="image/png" sizes="512x512" href="./icons/icon-512-v41.png">
-
-  <!-- Cache-busted manifest so Safari re-reads the current icon list. -->
-  <link rel="manifest" href="./manifest.json?v=20260812-build92-recovery">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-  <link rel="stylesheet" href="./style.css?v=20260812-build92-recovery">
+  <title>Ichigo — Beauty Inventory</title>
+  <link rel="manifest" href="./manifest.json?v=20260815-beauty-v1">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon-v41.png">
+  <link rel="icon" href="./icons/icon-192-v41.png">
+  <link rel="stylesheet" href="./style.css?v=20260815-beauty-v1">
 </head>
 <body>
-  <a class="skip-link" href="#mainView">Skip to content</a>
-  <div id="appShell" class="app-shell">
-    <header class="topbar topbar-v8">
-      <button class="icon-btn menu-btn-v8" data-action="open-drawer-v8" aria-label="Open Ichigo menu" title="Menu">☰</button>
-      <button class="brand brand-v8" data-action="go-home" aria-label="Go to Ichigo home">
-        <span class="brand-berry"><img src="./icons/icon-192-v41.png" alt=""></span>
-        <span><strong>ichigo</strong></span>
+  <div id="app" class="app-shell">
+    <header class="topbar">
+      <button class="icon-button" id="menuBtn" aria-label="Open menu">
+        <span></span><span></span><span></span>
       </button>
-      <div class="top-actions top-actions-v8">
-        <button class="icon-btn" data-action="open-search-v3" aria-label="Search everything" title="Search">⌕</button>
-        <button class="icon-btn install-icon-v8" id="installBtn" hidden title="Install Ichigo">⬇️</button>
-      </div>
+      <button class="brand-button" data-nav="home" aria-label="Go home">
+        <span class="brand-mark">🍓</span>
+        <span>
+          <strong>Ichigo</strong>
+          <small>your little beauty collection</small>
+        </span>
+      </button>
+      <button class="icon-button search-top" id="globalSearchBtn" aria-label="Search">⌕</button>
     </header>
 
-    <div id="appUpdateHost" aria-live="polite"></div>
+    <main id="main" class="main"></main>
 
-    <main id="mainView" class="main-view" aria-live="polite">
-      <section id="ichigoBootScreen" class="boot-screen-v92">
-        <img src="./icons/icon-192-v41.png" alt="">
-        <strong>Opening Ichigo…</strong>
-        <small>Preparing your local travel space.</small>
-      </section>
-    </main>
-
-    <nav id="bottomNavV8" class="bottom-nav bottom-nav-v8" aria-label="Main navigation"></nav>
-
-    <button id="fab" class="fab" data-action="open-quick-add" aria-label="Quick add">＋</button>
+    <nav class="bottom-nav" aria-label="Primary navigation">
+      <button data-nav="home" class="nav-item active"><span>⌂</span><small>Home</small></button>
+      <button data-nav="stash" class="nav-item"><span>▦</span><small>Stash</small></button>
+      <button id="quickAddBtn" class="nav-item add-item" aria-label="Add"><span>＋</span><small>Add</small></button>
+      <button data-nav="routine" class="nav-item"><span>☀</span><small>Routine</small></button>
+      <button data-nav="diary" class="nav-item"><span>♡</span><small>Diary</small></button>
+    </nav>
   </div>
 
-  <div id="drawerRootV8"></div>
-  <div id="modalRoot"></div>
-  <div id="toastRoot" class="toast-root"></div>
-
-  <template id="modalTemplate">
-    <div class="modal-backdrop" data-action="close-modal">
-      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-        <div class="modal-handle"></div>
-        <div class="modal-head">
-          <div><p class="eyebrow">ICHIGO</p><h2 id="modalTitle">Modal</h2></div>
-          <button class="icon-btn" data-action="close-modal" aria-label="Close">✕</button>
-        </div>
-        <div id="modalBody" class="modal-body"></div>
-      </section>
+  <div id="drawerBackdrop" class="backdrop hidden"></div>
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div>
+        <span class="eyebrow">ICHIGO · いちご</span>
+        <h2>Your beauty basket</h2>
+        <p>Like a basket filled with little strawberries, Ichigo gathers the small beauty things you love—skincare, makeup, favorites, and special finds—in one place.</p>
+      </div>
+      <button class="icon-button" id="closeDrawerBtn" aria-label="Close menu">×</button>
     </div>
-  </template>
+    <div class="drawer-menu">
+      <button data-nav="wishlist">♡ <span>Wishlist</span></button>
+      <button data-nav="empties">◌ <span>Empties</span></button>
+      <button data-nav="ingredients">✦ <span>Ingredients</span></button>
+      <button data-nav="analytics">⌁ <span>Analytics</span></button>
+      <button data-nav="trash">♲ <span>Trash</span></button>
+      <button data-action="open-import">⇩ <span>Smart Import</span></button>
+      <button data-nav="settings">⚙ <span>Settings & Data</span></button>
+      <button data-nav="about">ⓘ <span>About Ichigo</span></button>
+    </div>
+    <div class="drawer-foot">Version 1.0 · Build 1</div>
+  </aside>
 
-\n  <script>\n    window.__ICHIGO_BOOT_COMPLETE = false;\n    window.__ICHIGO_BOOT_ERROR = null;\n\n    function showIchigoBootRecovery(error) {\n      window.__ICHIGO_BOOT_ERROR = error || window.__ICHIGO_BOOT_ERROR;\n      if (window.__ICHIGO_BOOT_COMPLETE) return;\n      var main = document.getElementById('mainView');\n      if (!main) return;\n      main.innerHTML = '<section class="boot-recovery-v92">' +\n        '<img src="./icons/icon-192-v41.png" alt="">' +\n        '<p class="eyebrow">ICHIGO RECOVERY</p>' +\n        '<h1>Ichigo had trouble opening.</h1>' +\n        '<p>Your local trip data has not been erased. Reload the app first. If this keeps happening, replace the project with the complete recovery build.</p>' +\n        '<button type="button" onclick="location.reload()">Reload Ichigo</button>' +\n        '</section>';\n    }\n\n    window.addEventListener('error', function (event) {\n      if (!window.__ICHIGO_BOOT_COMPLETE) {\n        console.error('Ichigo startup error', event.error || event.message);\n        setTimeout(function(){ showIchigoBootRecovery(event.error || event.message); }, 0);\n      }\n    });\n    window.addEventListener('unhandledrejection', function (event) {\n      if (!window.__ICHIGO_BOOT_COMPLETE) {\n        console.error('Ichigo startup rejection', event.reason);\n        setTimeout(function(){ showIchigoBootRecovery(event.reason); }, 0);\n      }\n    });\n    setTimeout(function () {\n      if (!window.__ICHIGO_BOOT_COMPLETE) showIchigoBootRecovery(window.__ICHIGO_BOOT_ERROR);\n    }, 4500);\n  </script>\n
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="./data/data.js?v=20260812-build92-recovery"></script>
-  <script src="./data/db.js?v=20260812-build92-recovery"></script>
-  <script src="./app.js?v=20260812-build92-recovery"></script>
+  <div id="sheetBackdrop" class="backdrop hidden"></div>
+  <section id="sheet" class="sheet hidden" role="dialog" aria-modal="true" aria-label="Ichigo sheet">
+    <div class="sheet-handle"></div>
+    <div id="sheetContent"></div>
+  </section>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <script src="./app.js?v=20260815-beauty-v1"></script>
 </body>
 </html>
