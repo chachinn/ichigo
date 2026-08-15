@@ -1,4 +1,4 @@
-const CACHE = 'ichigo-beauty-shell-v10';
+const CACHE = 'ichigo-beauty-shell-v11';
 const SHELL = [
   './',
   './index.html',
@@ -46,11 +46,10 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(req.url);
 
-  // Do not proxy third-party product APIs or product images through the service worker.
-  // Let the browser request them directly; this is more reliable on installed iOS PWAs.
+  // Third-party product APIs and product images must bypass the service worker.
+  // This avoids opaque/cached failures in installed iOS PWAs and lets photo-loader.js retry directly.
   if (url.origin !== self.location.origin) return;
 
-  // Navigation and app scripts are network-first so installed iPhones recover from bad/stale builds quickly.
   if (req.mode === 'navigate' || /\/(app|online|product-guide|product-specific|usage-guide|info-integrity|photo-loader)\.js$/.test(url.pathname)) {
     event.respondWith(
       fetch(req)
