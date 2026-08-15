@@ -1,4 +1,4 @@
-const CACHE = 'ichigo-beauty-shell-v9';
+const CACHE = 'ichigo-beauty-shell-v10';
 const SHELL = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const SHELL = [
   './product-specific.js',
   './usage-guide.js',
   './info-integrity.js',
+  './photo-loader.js',
   './manifest.json',
   './icons/icon-192-v41.png',
   './icons/icon-512-v41.png',
@@ -16,7 +17,7 @@ const SHELL = [
   './icons/apple-touch-icon-v41.png'
 ];
 
-const SHELL_FILES = new Set(['index.html','style.css','app.js','online.js','product-guide.js','product-specific.js','usage-guide.js','info-integrity.js','manifest.json']);
+const SHELL_FILES = new Set(['index.html','style.css','app.js','online.js','product-guide.js','product-specific.js','usage-guide.js','info-integrity.js','photo-loader.js','manifest.json']);
 
 function shellFallback(url) {
   const file = url.pathname.split('/').pop() || 'index.html';
@@ -45,14 +46,12 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(req.url);
 
-  // Live product lookup and every other third-party request must stay network-only.
-  if (url.origin !== self.location.origin) {
-    event.respondWith(fetch(req));
-    return;
-  }
+  // Do not proxy third-party product APIs or product images through the service worker.
+  // Let the browser request them directly; this is more reliable on installed iOS PWAs.
+  if (url.origin !== self.location.origin) return;
 
   // Navigation and app scripts are network-first so installed iPhones recover from bad/stale builds quickly.
-  if (req.mode === 'navigate' || /\/(app|online|product-guide|product-specific|usage-guide|info-integrity)\.js$/.test(url.pathname)) {
+  if (req.mode === 'navigate' || /\/(app|online|product-guide|product-specific|usage-guide|info-integrity|photo-loader)\.js$/.test(url.pathname)) {
     event.respondWith(
       fetch(req)
         .then(res => {
