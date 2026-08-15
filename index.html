@@ -73,5 +73,151 @@
   <div id="toast" class="toast hidden" role="status"></div>
 
   <script src="./app.js?v=20260815-beauty-v1"></script>
+  <script>
+    (() => {
+      'use strict';
+
+      const SETTINGS_KEY = 'ichigo-v1-settings';
+      const AUTO_MATCH_THRESHOLD = 0.56;
+      let bypassAutoLookup = false;
+
+      const norm = value => String(value || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
+      const tokens = value => new Set(norm(value).split(/\s+/).filter(Boolean));
+      const similarity = (a, b) => {
+        const A = tokens(a), B = tokens(b);
+        if (!A.size || !B.size) return 0;
+        let common = 0;
+        A.forEach(token => { if (B.has(token)) common += 1; });
+        return common / Math.max(A.size, B.size);
+      };
+      const onlineEnabled = () => {
+        try {
+          const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+          return saved.onlineSearch !== false;
+        } catch (_) {
+          return true;
+        }
+      };
+      const webSearchUrl = query => 'https://www.google.com/search?q=' + encodeURIComponent(query + ' skincare makeup product');
+      const scoreMatch = (name, brand, product) => {
+        const remoteName = product.product_name || product.generic_name || '';
+        const remoteBrand = product.brands || '';
+        const localName = norm(name), candidateName = norm(remoteName);
+        let score = similarity(name, remoteName) * 0.72;
+        if (localName && candidateName && localName === candidateName) score += 0.22;
+        else if (localName && candidateName && (localName.includes(candidateName) || candidateName.includes(localName))) score += 0.12;
+        if (brand && remoteBrand) score += similarity(brand, remoteBrand) * 0.18;
+        return Math.min(1, score);
+      };
+      const inferCategory = text => {
+        const rules = [
+          ['Sunscreen', /\bspf\b|\bsunscreen\b|\bsun screen\b|\buv\b/i],
+          ['First Cleanse', /\bcleansing oil\b|\bcleansing balm\b|\bmicellar\b/i],
+          ['Cleanser', /\bcleanser\b|\bcleansing foam\b|\bface wash\b|\bcreamy foam\b/i],
+          ['Toner', /\btoner\b/i], ['Essence', /\bessence\b/i], ['Ampoule', /\bampoule\b/i],
+          ['Serum', /\bserum\b/i], ['Eye Care', /\beye cream\b|\beye serum\b/i],
+          ['Moisturizer', /\bmoistur|\bface cream\b/i], ['Spot Treatment', /\bspot\b|\bacne cream\b/i],
+          ['Lip Tint', /\blip tint\b|\btint\b/i], ['Lipstick', /\blipstick\b/i],
+          ['Foundation', /\bfoundation\b/i], ['Concealer', /\bconcealer\b/i], ['Blush', /\bblush\b/i],
+          ['Mascara', /\bmascara\b/i], ['Eyeliner', /\beyeliner\b/i]
+        ];
+        return rules.find(([, rule]) => rule.test(text))?.[0] || '';
+      };
+      const inferTags = text => {
+        const rules = [
+          ['Tretinoin', /\btretinoin\b/i], ['Retinal', /\bretinal\b/i], ['Retinol', /\bretinol\b/i],
+          ['Benzoyl Peroxide', /\bbenzoyl peroxide\b/i], ['Azelaic Acid', /\bazelaic\b/i],
+          ['Salicylic Acid / BHA', /\bsalicylic\b|\bbha\b/i], ['AHA', /\baha\b|\bglycolic\b|\blactic acid\b|\bmandelic\b/i],
+          ['Vitamin C', /\bvitamin c\b|\bascorb/i], ['Niacinamide', /\bniacinamide\b/i], ['Alpha Arbutin', /\barbutin\b/i],
+          ['PDRN', /\bpdrn\b/i], ['Peptides', /\bpeptide\b/i], ['Ceramides', /\bceramide\b/i],
+          ['Beta-Glucan', /\bbeta[- ]?glucan\b/i], ['Tea Tree', /\btea tree\b/i], ['Collagen', /\bcollagen\b/i]
+        ];
+        return rules.filter(([, rule]) => rule.test(text)).map(([label]) => label);
+      };
+      const setIfEmpty = (selector, value) => {
+        const el = document.querySelector(selector);
+        if (el && !el.value && value) el.value = value;
+      };
+
+      async function findBestOnlineProduct(query, name, brand) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8500);
+        try {
+          const fields = 'code,product_name,generic_name,brands,quantity,categories,image_front_url,image_front_small_url,ingredients_text,ingredients_text_en';
+          const url = 'https://world.openbeautyfacts.org/cgi/search.pl?search_terms=' + encodeURIComponent(query) + '&search_simple=1&action=process&json=1&page_size=8&fields=' + encodeURIComponent(fields);
+          const response = await fetch(url, { signal: controller.signal, headers: { Accept: 'application/json' } });
+          if (!response.ok) throw new Error('lookup failed');
+          const json = await response.json();
+          const matches = (json.products || []).filter(p => p.product_name || p.generic_name);
+          return matches.map(product => ({ product, score: scoreMatch(name, brand, product) })).sort((a, b) => b.score - a.score)[0] || null;
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+
+      function applyProductMatch(match) {
+        const p = match.product;
+        const source = p.code ? 'https://world.openbeautyfacts.org/product/' + encodeURIComponent(p.code) : '';
+        setIfEmpty('#fBrand', p.brands || '');
+        setIfEmpty('#fSize', p.quantity || '');
+        setIfEmpty('#fBarcode', p.code || '');
+        const ingredients = p.ingredients_text || p.ingredients_text_en || '';
+        setIfEmpty('#fIngredients', ingredients);
+        const category = inferCategory([p.product_name, p.generic_name, p.categories].filter(Boolean).join(' '));
+        const categoryEl = document.querySelector('#fCategory');
+        if (categoryEl && category && categoryEl.value === 'Other' && [...categoryEl.options].some(o => o.value === category)) categoryEl.value = category;
+        const tagEl = document.querySelector('#fTags');
+        if (tagEl) {
+          const existing = tagEl.value.split(',').map(x => x.trim()).filter(Boolean);
+          const detected = inferTags([p.product_name, ingredients].filter(Boolean).join(' '));
+          tagEl.value = [...new Set([...existing, ...detected])].join(', ');
+        }
+        return source;
+      }
+
+      document.addEventListener('click', async event => {
+        const button = event.target.closest('#saveProduct');
+        if (!button || bypassAutoLookup || button.disabled) return;
+
+        const nameEl = document.querySelector('#fName');
+        const sourceEl = document.querySelector('#fSourceUrl');
+        const brandEl = document.querySelector('#fBrand');
+        const name = nameEl?.value.trim() || '';
+        const brand = brandEl?.value.trim() || '';
+
+        if (!name || sourceEl?.value.trim() || !onlineEnabled()) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+
+        const originalText = button.textContent;
+        button.disabled = true;
+        button.textContent = navigator.onLine ? 'Finding online…' : 'Connecting web search…';
+
+        const query = [brand, name].filter(Boolean).join(' ').trim() || name;
+        let sourceUrl = webSearchUrl(query);
+
+        if (navigator.onLine) {
+          try {
+            const best = await findBestOnlineProduct(query, name, brand);
+            if (best && best.score >= AUTO_MATCH_THRESHOLD) {
+              sourceUrl = applyProductMatch(best) || sourceUrl;
+            }
+          } catch (_) {
+            // Keep the wider web-search link as a safe fallback.
+          }
+        }
+
+        if (sourceEl) sourceEl.value = sourceUrl;
+        button.disabled = false;
+        button.textContent = originalText;
+
+        bypassAutoLookup = true;
+        button.click();
+        bypassAutoLookup = false;
+      }, true);
+    })();
+  </script>
 </body>
 </html>
