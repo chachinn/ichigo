@@ -1,4 +1,4 @@
-const CACHE = 'ichigo-beauty-shell-v4';
+const CACHE = 'ichigo-beauty-shell-v5';
 const SHELL = [
   './',
   './index.html',
@@ -11,6 +11,13 @@ const SHELL = [
   './icons/icon-maskable-512-v41.png',
   './icons/apple-touch-icon-v41.png'
 ];
+
+const SHELL_FILES = new Set(['index.html','style.css','app.js','online.js','manifest.json']);
+
+function shellFallback(url) {
+  const file = url.pathname.split('/').pop() || 'index.html';
+  return SHELL_FILES.has(file) ? caches.match('./' + file) : Promise.resolve(undefined);
+}
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -51,21 +58,22 @@ self.addEventListener('fetch', event => {
           }
           return res;
         })
-        .catch(() => req.mode === 'navigate' ? caches.match('./index.html') : caches.match(req))
+        .catch(async () => {
+          if (req.mode === 'navigate') return caches.match('./index.html');
+          return (await caches.match(req)) || shellFallback(url);
+        })
     );
     return;
   }
 
-  event.respondWith(
-    caches.match(req).then(cached => {
-      if (cached) return cached;
-      return fetch(req).then(res => {
-        if (res.ok) {
-          const copy = res.clone();
-          caches.open(CACHE).then(cache => cache.put(req, copy));
-        }
-        return res;
-      });
-    })
-  );
+  event.respondWith((async () => {
+    const cached = await caches.match(req) || await shellFallback(url);
+    if (cached) return cached;
+    const res = await fetch(req);
+    if (res.ok) {
+      const copy = res.clone();
+      caches.open(CACHE).then(cache => cache.put(req, copy));
+    }
+    return res;
+  })());
 });
