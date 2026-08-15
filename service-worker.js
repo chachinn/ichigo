@@ -1,9 +1,10 @@
-const CACHE = 'ichigo-beauty-shell-v3';
+const CACHE = 'ichigo-beauty-shell-v4';
 const SHELL = [
   './',
   './index.html',
   './style.css',
   './app.js',
+  './online.js',
   './manifest.json',
   './icons/icon-192-v41.png',
   './icons/icon-512-v41.png',
@@ -39,18 +40,18 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Pages are network-first so installed iPhones recover immediately from a bad cached build.
-  if (req.mode === 'navigate') {
+  // Navigation and app scripts are network-first so installed iPhones recover from bad/stale builds quickly.
+  if (req.mode === 'navigate' || /\/(app|online)\.js$/.test(url.pathname)) {
     event.respondWith(
       fetch(req)
         .then(res => {
           if (res.ok) {
             const copy = res.clone();
-            caches.open(CACHE).then(cache => cache.put('./index.html', copy));
+            caches.open(CACHE).then(cache => cache.put(req.mode === 'navigate' ? './index.html' : req, copy));
           }
           return res;
         })
-        .catch(() => caches.match('./index.html'))
+        .catch(() => req.mode === 'navigate' ? caches.match('./index.html') : caches.match(req))
     );
     return;
   }
