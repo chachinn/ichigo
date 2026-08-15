@@ -110,26 +110,9 @@
       if (strong && !strong.textContent.trim()) strong.textContent = value;
     });
 
-    const structured = product.onlineMatchStatus === 'structured' || product.sourceName === 'Open Beauty Facts';
-    const imageUrl = structured ? (product.onlineImage || product.image || '') : (product.image || '');
-    if (imageUrl && structured && !guide.querySelector('img')) {
-      const card = guide.querySelector('.card');
-      if (card) {
-        const photo = document.createElement('div');
-        photo.style.cssText = 'display:flex;gap:14px;align-items:center;margin-bottom:16px';
-        photo.innerHTML = `<div class="product-thumb" style="width:104px;height:104px;flex:0 0 104px"><img src="${esc(imageUrl)}" alt="${esc(product.name || 'Product')} product photo"></div><div style="min-width:0;flex:1"><span class="eyebrow">WEB PRODUCT PHOTO</span><strong style="display:block;margin-top:5px">${esc(product.onlineProductName || product.name || '')}</strong></div>`;
-        card.prepend(photo);
-      }
-    }
-
-    const img = guide.querySelector('img');
-    if (img && !img.dataset.integrityBound) {
-      img.dataset.integrityBound = '1';
-      img.addEventListener('error', () => {
-        const wrap = img.closest('.product-thumb');
-        if (wrap) wrap.innerHTML = '<span aria-hidden="true">🧴</span>';
-      }, { once: true });
-    }
+    // Product-photo rendering and recovery are deliberately owned only by photo-loader.js.
+    // Keeping photo mutation out of this integrity pass prevents competing error handlers
+    // from replacing a recoverable web image before the dedicated loader can retry it.
 
     const sheet = document.getElementById('sheetContent');
     if (sheet && product.ingredients && ![...sheet.querySelectorAll('.section-head h2')].some(h => h.textContent.trim() === 'Ingredients')) {
