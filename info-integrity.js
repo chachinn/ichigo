@@ -7,7 +7,7 @@
 
   const norm = value => String(value || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({
-    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'
   }[ch]));
 
   function readData() {
@@ -75,17 +75,28 @@
       if (generic) whatText.textContent = fallbackSummary(product);
     }
 
-    if (!guide.querySelector('[data-ichigo-how-to-use]')) {
+    let howBlock = guide.querySelector('[data-ichigo-how-to-use]');
+    if (!howBlock) {
       const anchor = whatBlock || guide.querySelector('.card');
       if (anchor) {
-        const block = document.createElement('div');
-        block.dataset.ichigoHowToUse = '1';
-        block.style.marginTop = '16px';
-        block.innerHTML = `<strong>How to use</strong><p style="margin-top:5px"></p><small style="display:block;margin-top:6px;opacity:.72">General guidance — product packaging or prescriber directions take priority.</small>`;
-        block.querySelector('p').textContent = fallbackUse(product);
-        if (whatBlock) whatBlock.insertAdjacentElement('afterend', block);
-        else anchor.appendChild(block);
+        howBlock = document.createElement('div');
+        howBlock.dataset.ichigoHowToUse = '1';
+        howBlock.style.marginTop = '16px';
+        howBlock.innerHTML = '<strong>How to use</strong><p style="margin-top:5px"></p>';
+        howBlock.querySelector('p').textContent = fallbackUse(product);
+        if (whatBlock) whatBlock.insertAdjacentElement('afterend', howBlock);
+        else anchor.appendChild(howBlock);
       }
+    }
+
+    if (howBlock && !howBlock.querySelector('[data-ichigo-guidance-note]')) {
+      const note = document.createElement('small');
+      note.dataset.ichigoGuidanceNote = '1';
+      note.style.cssText = 'display:block;margin-top:6px;opacity:.72';
+      note.textContent = product.category === 'Prescription / Dermatologist Treatment'
+        ? 'Prescriber and medication-label directions take priority.'
+        : 'General guidance unless the product packaging gives more specific directions.';
+      howBlock.appendChild(note);
     }
 
     const expected = [
