@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- Ichigo beauty v1.11.1 · final product photo recovery deployment -->
+<!-- Ichigo beauty v1.12 · Hana-style skincare smart sort -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -10,10 +10,10 @@
   <meta name="apple-mobile-web-app-title" content="Ichigo">
   <meta name="format-detection" content="telephone=no">
   <title>Ichigo — Beauty Inventory</title>
-  <link rel="manifest" href="./manifest.json?v=20260815-beauty-v1-11-1">
+  <link rel="manifest" href="./manifest.json?v=20260815-beauty-v1-12">
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon-v41.png">
   <link rel="icon" href="./icons/icon-192-v41.png">
-  <link rel="stylesheet" href="./style.css?v=20260815-beauty-v1-11-1">
+  <link rel="stylesheet" href="./style.css?v=20260815-beauty-v1-12">
 </head>
 <body>
   <div id="app" class="app-shell">
@@ -28,6 +28,7 @@
           <small>your little beauty collection</small>
         </span>
       </button>
+      <button class="icon-button" id="skincareQuickButton" type="button" aria-label="Open my skincare" title="Open my skincare">🧴</button>
       <button class="icon-button search-top" id="globalSearchBtn" aria-label="Search">⌕</button>
     </header>
 
@@ -53,6 +54,7 @@
       <button class="icon-button" id="closeDrawerBtn" aria-label="Close menu">×</button>
     </div>
     <div class="drawer-menu">
+      <button id="skincareDrawerButton" type="button">🧴 <span>Skincare</span></button>
       <button data-nav="wishlist">♡ <span>Wishlist</span></button>
       <button data-nav="empties">◌ <span>Empties</span></button>
       <button data-nav="ingredients">✦ <span>Ingredients</span></button>
@@ -74,12 +76,14 @@
 
   <div id="toast" class="toast hidden" role="status"></div>
 
-  <script src="./app.js?v=20260815-beauty-v1-11-1"></script>
-  <script src="./online.js?v=20260815-beauty-v1-11-1"></script>
-  <script src="./product-guide.js?v=20260815-beauty-v1-11-1"></script>
-  <script src="./product-specific.js?v=20260815-beauty-v1-11-1"></script>
-  <script src="./usage-guide.js?v=20260815-beauty-v1-11-1"></script>
-  <script src="./info-integrity.js?v=20260815-beauty-v1-11-1"></script>
-  <script src="./photo-loader.js?v=20260815-beauty-v1-11-1"></script>
+  <script src="./app.js?v=20260815-beauty-v1-12"></script>
+  <script src="./online.js?v=20260815-beauty-v1-12"></script>
+  <script src="./product-guide.js?v=20260815-beauty-v1-12"></script>
+  <script src="./product-specific.js?v=20260815-beauty-v1-12"></script>
+  <script src="./usage-guide.js?v=20260815-beauty-v1-12"></script>
+  <script src="./info-integrity.js?v=20260815-beauty-v1-12"></script>
+  <script src="./photo-loader.js?v=20260815-beauty-v1-12"></script>
+  <script src="./skincare-smart-sort.js?v=20260815-beauty-v1-12"></script>
+  <script src="./skincare-view.js?v=20260815-beauty-v1-12"></script>
 </body>
 </html>
