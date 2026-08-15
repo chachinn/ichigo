@@ -1,10 +1,11 @@
-const CACHE = 'ichigo-beauty-shell-v5';
+const CACHE = 'ichigo-beauty-shell-v6';
 const SHELL = [
   './',
   './index.html',
   './style.css',
   './app.js',
   './online.js',
+  './product-guide.js',
   './manifest.json',
   './icons/icon-192-v41.png',
   './icons/icon-512-v41.png',
@@ -12,7 +13,7 @@ const SHELL = [
   './icons/apple-touch-icon-v41.png'
 ];
 
-const SHELL_FILES = new Set(['index.html','style.css','app.js','online.js','manifest.json']);
+const SHELL_FILES = new Set(['index.html','style.css','app.js','online.js','product-guide.js','manifest.json']);
 
 function shellFallback(url) {
   const file = url.pathname.split('/').pop() || 'index.html';
@@ -48,7 +49,7 @@ self.addEventListener('fetch', event => {
   }
 
   // Navigation and app scripts are network-first so installed iPhones recover from bad/stale builds quickly.
-  if (req.mode === 'navigate' || /\/(app|online)\.js$/.test(url.pathname)) {
+  if (req.mode === 'navigate' || /\/(app|online|product-guide)\.js$/.test(url.pathname)) {
     event.respondWith(
       fetch(req)
         .then(res => {
