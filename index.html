@@ -73,7 +73,7 @@
 
   <div id="toast" class="toast hidden" role="status"></div>
 
-  <script src="./app.js?v=20260815-beauty-v1-3"></script>
+  <script src="./app.js?v=20260815-beauty-v1-4"></script>
   <script>
     (() => {
       'use strict';
@@ -519,13 +519,24 @@
           }
           const badges = card.querySelector('.badges');
           if (!badges) return;
-          const old = badges.querySelector('.ichigo-online-badge');
-          if (old) old.remove();
-          if (!product.sourceUrl) return;
-          const badge = document.createElement('span');
-          badge.className = product.onlineMatchStatus === 'structured' ? 'badge lav ichigo-online-badge' : 'badge gray ichigo-online-badge';
-          badge.textContent = product.onlineMatchStatus === 'structured' ? 'Online details' : 'Web reference';
-          badges.appendChild(badge);
+          let badge = badges.querySelector('.ichigo-online-badge');
+          if (!product.sourceUrl) {
+            if (badge) badge.remove();
+            return;
+          }
+          const wantedClass = product.onlineMatchStatus === 'structured'
+            ? 'badge lav ichigo-online-badge'
+            : 'badge gray ichigo-online-badge';
+          const wantedText = product.onlineMatchStatus === 'structured' ? 'Online details' : 'Web reference';
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = wantedClass;
+            badge.textContent = wantedText;
+            badges.appendChild(badge);
+            return;
+          }
+          if (badge.className !== wantedClass) badge.className = wantedClass;
+          if (badge.textContent !== wantedText) badge.textContent = wantedText;
         });
       }
 
@@ -561,7 +572,6 @@
         const quantity = product.onlineQuantity || product.size || '';
         const ingredients = product.ingredients || '';
         const tags = Array.isArray(product.tags) ? product.tags : [];
-        const sourceUrl = product.sourceUrl || webSearchUrl([product.brand, product.name].filter(Boolean).join(' '));
 
         if (!isStructured) {
           return `
@@ -659,9 +669,15 @@
 
       document.getElementById('bulkLinkDrawerBtn')?.addEventListener('click', startBulkLink);
 
+      let mainSyncQueued = false;
       const mainObserver = new MutationObserver(() => {
-        addBulkLinkButtonToStash();
-        syncVisibleStashOnlineState();
+        if (mainSyncQueued) return;
+        mainSyncQueued = true;
+        requestAnimationFrame(() => {
+          mainSyncQueued = false;
+          addBulkLinkButtonToStash();
+          syncVisibleStashOnlineState();
+        });
       });
       const main = document.getElementById('main');
       if (main) mainObserver.observe(main, { childList: true, subtree: true });
