@@ -7,6 +7,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
+  GoogleAuthProvider,
+  signInWithPopup,
   signOut
 } from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js';
 
@@ -22,6 +24,8 @@ const firebaseConfig = {
 const LOCAL_MODE_KEY = 'ichigo-auth-local-mode-v1';
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 let currentUser = null;
 let authMode = 'login';
@@ -49,10 +53,15 @@ function friendlyError(error) {
     case 'auth/wrong-password':
     case 'auth/user-not-found': return "That email or password didn't match.";
     case 'auth/email-already-in-use': return 'That email already has an Ichigo account. Try logging in instead.';
+    case 'auth/account-exists-with-different-credential': return 'That email already uses a different sign-in method. Try the method you used before.';
     case 'auth/weak-password': return 'Choose a password with at least 6 characters.';
     case 'auth/too-many-requests': return 'Too many attempts for now. Please try again later.';
     case 'auth/network-request-failed': return "Ichigo couldn't reach Firebase. Check your connection and try again.";
-    case 'auth/operation-not-allowed': return 'Email/password login still needs to be enabled in the Ichigo Firebase project.';
+    case 'auth/operation-not-allowed': return 'This sign-in method still needs to be enabled in the Ichigo Firebase project.';
+    case 'auth/unauthorized-domain': return 'Google sign-in is not authorized for this Ichigo web address yet. Add chachinn.github.io to Firebase Authentication → Settings → Authorized domains.';
+    case 'auth/popup-blocked': return 'Your browser blocked the Google sign-in window. Allow pop-ups for Ichigo and try again.';
+    case 'auth/popup-closed-by-user': return 'Google sign-in was closed before it finished.';
+    case 'auth/cancelled-popup-request': return 'Another sign-in window was already opening. Try again once.';
     case 'auth/user-disabled': return 'This account is currently disabled.';
     default: return "Ichigo couldn't complete that just now. Please try again.";
   }
@@ -72,6 +81,13 @@ function ensureAuthUI() {
       <span class="eyebrow">ICHIGO · いちご</span>
       <h1 id="ichigoAuthTitle">Welcome back to Ichigo</h1>
       <p id="ichigoAuthSubtitle">Your little beauty collection is waiting.</p>
+
+      <button id="ichigoGoogleSignIn" class="ichigo-google-button" type="button" aria-label="Continue with Google">
+        <span class="ichigo-google-g" aria-hidden="true">G</span>
+        <span>Continue with Google</span>
+      </button>
+
+      <div class="ichigo-auth-divider"><span>or use email</span></div>
 
       <form id="ichigoLoginForm" class="ichigo-auth-form">
         <label>Email<input id="ichigoLoginEmail" type="email" autocomplete="email" inputmode="email" required></label>
@@ -95,6 +111,7 @@ function ensureAuthUI() {
     </div>`;
   document.body.appendChild(gate);
 
+  qs('#ichigoGoogleSignIn').addEventListener('click', handleGoogleSignIn);
   qs('#ichigoLoginForm').addEventListener('submit', handleLogin);
   qs('#ichigoSignupForm').addEventListener('submit', handleSignup);
   qs('#ichigoForgotPassword').addEventListener('click', handleForgotPassword);
@@ -141,12 +158,28 @@ function showGate(force = false) {
   qs('#ichigoAuthGate')?.classList.remove('hidden');
   document.body.classList.add('ichigo-auth-open');
   setMode('login');
-  requestAnimationFrame(() => qs('#ichigoLoginEmail')?.focus());
+  requestAnimationFrame(() => qs('#ichigoGoogleSignIn')?.focus());
 }
 
 function hideGate() {
   qs('#ichigoAuthGate')?.classList.add('hidden');
   document.body.classList.remove('ichigo-auth-open');
+}
+
+async function handleGoogleSignIn() {
+  if (busy) return;
+  clearMessage();
+  setBusy(true);
+  try {
+    await signInWithPopup(auth, googleProvider);
+    setLocalMode(false);
+    hideGate();
+  } catch (error) {
+    if (error?.code !== 'auth/popup-closed-by-user') console.warn('Ichigo Google sign-in failed.', error);
+    showMessage(friendlyError(error));
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function handleLogin(event) {
@@ -237,13 +270,15 @@ function renderAccountPanel() {
 
   const signedIn = Boolean(currentUser);
   const email = currentUser?.email || '';
+  const providerIds = Array.isArray(currentUser?.providerData) ? currentUser.providerData.map(item => item?.providerId).filter(Boolean) : [];
+  const providerLabel = providerIds.includes('google.com') ? 'Google' : providerIds.includes('password') ? 'Email & password' : 'Firebase';
   section.innerHTML = `
     <div class="section-head"><h2>Account</h2></div>
     <div class="card ichigo-account-card">
       <div>
         <span class="ichigo-account-pill ${signedIn ? 'signed-in' : ''}">${signedIn ? 'Signed in' : 'Local'}</span>
         <h3>${signedIn ? 'Ichigo account' : 'Using Ichigo without an account'}</h3>
-        <p>${signedIn ? escapeHtml(email) : 'Your beauty collection is stored on this device.'}</p>
+        <p>${signedIn ? `${escapeHtml(email)} · ${escapeHtml(providerLabel)}` : 'Your beauty collection is stored on this device.'}</p>
       </div>
       <div class="button-row">
         ${signedIn
