@@ -1,8 +1,9 @@
-const CACHE = 'ichigo-beauty-shell-v12';
+const CACHE = 'ichigo-beauty-shell-v13';
 const SHELL = [
   './',
   './index.html',
   './style.css',
+  './firebase-auth.css',
   './app.js',
   './online.js',
   './product-guide.js',
@@ -12,6 +13,7 @@ const SHELL = [
   './photo-loader.js',
   './skincare-smart-sort.js',
   './skincare-view.js',
+  './firebase-auth.js',
   './manifest.json',
   './icons/icon-192-v41.png',
   './icons/icon-512-v41.png',
@@ -19,7 +21,7 @@ const SHELL = [
   './icons/apple-touch-icon-v41.png'
 ];
 
-const SHELL_FILES = new Set(['index.html','style.css','app.js','online.js','product-guide.js','product-specific.js','usage-guide.js','info-integrity.js','photo-loader.js','skincare-smart-sort.js','skincare-view.js','manifest.json']);
+const SHELL_FILES = new Set(['index.html','style.css','firebase-auth.css','app.js','online.js','product-guide.js','product-specific.js','usage-guide.js','info-integrity.js','photo-loader.js','skincare-smart-sort.js','skincare-view.js','firebase-auth.js','manifest.json']);
 
 function shellFallback(url) {
   const file = url.pathname.split('/').pop() || 'index.html';
@@ -48,11 +50,10 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(req.url);
 
-  // Third-party product APIs and product images must bypass the service worker.
-  // This avoids opaque/cached failures in installed iOS PWAs and lets photo-loader.js retry directly.
+  // Third-party product APIs, Firebase SDK modules, auth traffic, and product images bypass the service worker.
   if (url.origin !== self.location.origin) return;
 
-  if (req.mode === 'navigate' || /\/(app|online|product-guide|product-specific|usage-guide|info-integrity|photo-loader|skincare-smart-sort|skincare-view)\.js$/.test(url.pathname)) {
+  if (req.mode === 'navigate' || /\/(app|online|product-guide|product-specific|usage-guide|info-integrity|photo-loader|skincare-smart-sort|skincare-view|firebase-auth)\.js$/.test(url.pathname)) {
     event.respondWith(
       fetch(req)
         .then(res => {
