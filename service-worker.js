@@ -1,4 +1,4 @@
-const CACHE = 'ichigo-beauty-shell-v13';
+const CACHE = 'ichigo-beauty-shell-v14';
 const SHELL = [
   './',
   './index.html',
@@ -6,6 +6,7 @@ const SHELL = [
   './firebase-auth.css',
   './app.js',
   './online.js',
+  './online-web-match.js',
   './product-guide.js',
   './product-specific.js',
   './usage-guide.js',
@@ -21,7 +22,7 @@ const SHELL = [
   './icons/apple-touch-icon-v41.png'
 ];
 
-const SHELL_FILES = new Set(['index.html','style.css','firebase-auth.css','app.js','online.js','product-guide.js','product-specific.js','usage-guide.js','info-integrity.js','photo-loader.js','skincare-smart-sort.js','skincare-view.js','firebase-auth.js','manifest.json']);
+const SHELL_FILES = new Set(['index.html','style.css','firebase-auth.css','app.js','online.js','online-web-match.js','product-guide.js','product-specific.js','usage-guide.js','info-integrity.js','photo-loader.js','skincare-smart-sort.js','skincare-view.js','firebase-auth.js','manifest.json']);
 
 function shellFallback(url) {
   const file = url.pathname.split('/').pop() || 'index.html';
@@ -53,7 +54,7 @@ self.addEventListener('fetch', event => {
   // Third-party product APIs, Firebase SDK modules, auth traffic, and product images bypass the service worker.
   if (url.origin !== self.location.origin) return;
 
-  if (req.mode === 'navigate' || /\/(app|online|product-guide|product-specific|usage-guide|info-integrity|photo-loader|skincare-smart-sort|skincare-view|firebase-auth)\.js$/.test(url.pathname)) {
+  if (req.mode === 'navigate' || /\/(app|online|online-web-match|product-guide|product-specific|usage-guide|info-integrity|photo-loader|skincare-smart-sort|skincare-view|firebase-auth)\.js$/.test(url.pathname)) {
     event.respondWith(
       fetch(req)
         .then(res => {
