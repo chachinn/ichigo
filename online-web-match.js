@@ -4,7 +4,7 @@
   const DATA_KEY = 'ichigo-v1-data';
   let decorateQueued = false;
 
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'}[ch]));
   const norm = value => String(value || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
 
   function readData() {
@@ -26,6 +26,10 @@
 
   function googleImages(query) {
     return 'https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(query);
+  }
+
+  function siteSearch(domain, query) {
+    return googleSearch(`site:${domain} "${query}"`);
   }
 
   function findOpenProduct() {
@@ -59,6 +63,36 @@
     }
   }
 
+  function sourceProfile(product) {
+    const text = norm([product.category, product.name, product.brand, ...(product.tags || [])].filter(Boolean).join(' '));
+    const perfume = /\b(perfume|parfum|fragrance|cologne|eau de|edp|edt|eau parfum|eau toilette)\b/.test(text);
+    const makeup = /\b(primer|foundation|skin tint|bb|cc|concealer|powder|blush|highlighter|bronzer|contour|setting spray|eyeshadow|eyeliner|mascara|brows|lipstick|lip tint|lip gloss|lip liner|makeup palette|false lashes)\b/.test(text);
+    const hair = /\b(hair|scalp|shampoo|conditioner|treatment|hair oil|hair milk)\b/.test(text);
+    const skincare = !perfume && !makeup && !hair;
+    return { perfume, makeup, hair, skincare };
+  }
+
+  function sourceButtons(product, query) {
+    const profile = sourceProfile(product);
+    const buttons = [];
+    if (profile.perfume) {
+      buttons.push(['Fragrantica', siteSearch('fragrantica.com', query)]);
+      buttons.push(['Sephora', siteSearch('sephora.com', query)]);
+    } else if (profile.makeup) {
+      buttons.push(['YesStyle', siteSearch('yesstyle.com', query)]);
+      buttons.push(['Sephora', siteSearch('sephora.com', query)]);
+      buttons.push(['Olive Young', siteSearch('global.oliveyoung.com', query)]);
+    } else if (profile.hair) {
+      buttons.push(['YesStyle', siteSearch('yesstyle.com', query)]);
+      buttons.push(['Olive Young', siteSearch('global.oliveyoung.com', query)]);
+    } else if (profile.skincare) {
+      buttons.push(['YesStyle', siteSearch('yesstyle.com', query)]);
+      buttons.push(['Olive Young', siteSearch('global.oliveyoung.com', query)]);
+      buttons.push(['Sephora', siteSearch('sephora.com', query)]);
+    }
+    return buttons;
+  }
+
   function decorateProductDetail() {
     const sheet = document.getElementById('sheetContent');
     if (!sheet || sheet.querySelector('#ichigoWebMatchPanel')) return;
@@ -74,20 +108,22 @@
     const barcodeQuery = product.barcode ? `"${product.barcode}" ${quoted}` : '';
     const savedUrl = product.sourceUrl || '';
     const savedExact = savedUrl && !isSearchReference(savedUrl);
+    const sources = sourceButtons(product, query);
 
     const panel = document.createElement('section');
     panel.id = 'ichigoWebMatchPanel';
     panel.className = 'section';
     panel.innerHTML = `
-      <div class="section-head"><div><h2>Find this product online</h2><p>Search beyond Ichigo's structured beauty database, then save the exact page you verify.</p></div></div>
+      <div class="section-head"><div><h2>Find this product online</h2><p>Search high-coverage beauty sources, then save the exact page you verify.</p></div></div>
       <div class="card">
         <div class="badges" style="margin-bottom:10px">
           <span class="badge ${savedExact ? 'green' : 'gray'}">${savedExact ? 'Exact page saved' : savedUrl ? 'Search reference only' : 'No web page saved'}</span>
           ${product.onlineMatchStatus === 'structured' ? '<span class="badge lav">Structured match</span>' : ''}
         </div>
+        ${sources.length ? `<div style="margin:4px 0 12px"><strong style="font-size:12px">Best places to check</strong><div class="button-row" style="margin-top:8px">${sources.map(([label,url],i)=>`<button class="secondary" data-ichigo-source="${i}" type="button">${esc(label)}</button>`).join('')}</div></div>` : ''}
         <div class="button-row">
           <button class="secondary" id="ichigoExactWebSearch" type="button">Search exact product</button>
-          <button class="secondary" id="ichigoOfficialSearch" type="button">Find official page</button>
+          <button class="secondary" id="ichigoOfficialSearch" type="button">Find official brand page</button>
           <button class="secondary" id="ichigoImageSearch" type="button">Check product images</button>
           ${barcodeQuery ? '<button class="secondary" id="ichigoBarcodeSearch" type="button">Search barcode</button>' : ''}
         </div>
@@ -100,11 +136,15 @@
           ${savedExact ? '<button class="secondary" id="ichigoOpenSavedUrl" type="button">Open saved page</button>' : ''}
         </div>
         <div id="ichigoWebMatchMessage" class="info-box hidden" style="margin-top:10px"></div>
-        <p style="margin-top:10px">Ichigo will never pick a random search result or image for you. Use the searches to verify the exact brand/product, then save that page here.</p>
+        <p style="margin-top:10px">Ichigo does not scrape retailer or fragrance sites or silently copy their data. Open the source, confirm the exact item, then save that product page here.</p>
       </div>`;
     actions.insertAdjacentElement('afterend', panel);
 
-    document.getElementById('ichigoExactWebSearch')?.addEventListener('click', () => window.open(googleSearch(quoted + ' skincare beauty'), '_blank', 'noopener'));
+    document.querySelectorAll('[data-ichigo-source]').forEach(button => button.addEventListener('click', () => {
+      const source = sources[Number(button.dataset.ichigoSource)];
+      if (source) window.open(source[1], '_blank', 'noopener');
+    }));
+    document.getElementById('ichigoExactWebSearch')?.addEventListener('click', () => window.open(googleSearch(quoted + ' skincare beauty makeup fragrance'), '_blank', 'noopener'));
     document.getElementById('ichigoOfficialSearch')?.addEventListener('click', () => window.open(googleSearch(officialQuery), '_blank', 'noopener'));
     document.getElementById('ichigoImageSearch')?.addEventListener('click', () => window.open(googleImages(quoted), '_blank', 'noopener'));
     document.getElementById('ichigoBarcodeSearch')?.addEventListener('click', () => window.open(googleSearch(barcodeQuery), '_blank', 'noopener'));
