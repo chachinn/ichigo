@@ -687,9 +687,14 @@
   let lastTouchEnd=0;
   document.addEventListener('touchend',e=>{const now=Date.now();if(now-lastTouchEnd<=300)e.preventDefault();lastTouchEnd=now;},{passive:false});
 
-  // Register service worker only on http(s), never file://.
+  // Register/update the PWA shell aggressively so iOS Home Screen copies do not stay on stale backup code.
   if('serviceWorker' in navigator && location.protocol.startsWith('http')){
-    addEventListener('load',()=>navigator.serviceWorker.register('./service-worker.js').catch(()=>{}));
+    addEventListener('load',async()=>{
+      try{
+        const reg=await navigator.serviceWorker.register('./service-worker.js?v=20261012-v23',{scope:'./',updateViaCache:'none'});
+        await reg.update();
+      }catch(error){console.warn('Ichigo service worker update was deferred.',error);}
+    });
   }
 
   render();
