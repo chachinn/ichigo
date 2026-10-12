@@ -16,14 +16,20 @@ const db = getFirestore(app);
 const DATA_KEY = 'ichigo-v1-data';
 const CLOUD_META_KEY = 'ichigo-cloud-backup-meta-v1';
 const CLOUD_LOCAL_SAFETY_KEY = 'ichigo-cloud-local-safety-v1';
+const RESTORE_GUARD_KEY = 'ichigo-cloud-restore-first-guard-v1';
+const DEVICE_ID_KEY = 'ichigo-cloud-device-id-v1';
 const CHUNK_CHAR_LIMIT = 180000;
 const MAX_BACKUPS = 8;
 const LIST_LIMIT = 12;
+const AUTO_SYNC_DEBOUNCE_MS = 3500;
+const AUTO_SYNC_POLL_MS = 30000;
 const PH_OFFSET_MS = 8 * 60 * 60 * 1000;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 let backupBusy = false;
 let summaryLoadedForUid = '';
 let weeklyTimer = null;
+let autoSyncTimer = null;
+let autoSyncPoll = null;
 
 const qs = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -42,12 +48,46 @@ function isManagedKey(key) {
   return true;
 }
 
+function hashText(text = '') {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function deviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      id = crypto.randomUUID ? crypto.randomUUID() : `device_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  } catch (_) {
+    return 'unknown-device';
+  }
+}
+
+function restoreGuardActive(uid) {
+  try {
+    const guard = JSON.parse(localStorage.getItem(RESTORE_GUARD_KEY) || 'null');
+    return Boolean(guard?.uid && guard.uid === uid && guard.backupId);
+  } catch (_) {
+    return false;
+  }
+}
+
 function collectSnapshot() {
-  const keys = {};
+  const unsorted = {};
   for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i);
-    if (isManagedKey(key)) keys[key] = localStorage.getItem(key);
+    if (isManagedKey(key)) unsorted[key] = localStorage.getItem(key);
   }
+  const keys = {};
+  Object.keys(unsorted).sort().forEach(key => { keys[key] = unsorted[key]; });
+  const snapshotHash = hashText(JSON.stringify(keys));
   const snapshot = {
     version: 1,
     createdAtMs: Date.now(),
@@ -62,6 +102,7 @@ function collectSnapshot() {
   return {
     snapshot,
     json,
+    snapshotHash,
     productCount,
     keyCount: Object.keys(keys).length,
     byteLength: new Blob([json]).size
@@ -124,6 +165,7 @@ function formatBytes(bytes) {
 }
 
 function kindLabel(kind) {
+  if (kind === 'sync') return 'Auto sync';
   if (kind === 'weekly') return 'Weekly';
   if (kind === 'pre-restore') return 'Pre-restore safety';
   return 'Manual';
@@ -165,6 +207,12 @@ function friendlyCloudError(error) {
   if (code === 'ichigo/empty-local-protection') {
     return 'Ichigo found an older cloud backup with products, but this device currently has no products. Automatic backup was blocked so an empty device cannot replace your useful backup.';
   }
+  if (code === 'ichigo/restore-first-guard') {
+    return 'A protected cloud collection is waiting to be restored on this device. Ichigo paused automatic upload so it cannot be overwritten.';
+  }
+  if (code === 'ichigo/newer-cloud-copy') {
+    return 'A newer backup from another device is protected. Review and restore that cloud copy before uploading changes from this device.';
+  }
   return 'Cloud Backup could not finish. Your local collection was not changed.';
 }
 
@@ -200,7 +248,18 @@ async function createBackup(kind = 'manual', options = {}) {
   updateCloudButtons();
 
   try {
+    if ((kind === 'sync' || kind === 'weekly') && restoreGuardActive(user.uid)) {
+      const error = new Error('restore-first guard');
+      error.code = 'ichigo/restore-first-guard';
+      throw error;
+    }
+
     const local = collectSnapshot();
+    const localMeta = readLocalMeta();
+    if (options.skipIfUnchanged && localMeta.lastBackupHash && localMeta.lastBackupHash === local.snapshotHash) {
+      return null;
+    }
+
     const existing = options.skipEmptyProtection ? [] : await listBackups(user.uid, 1);
     if (!options.allowEmpty && local.productCount === 0 && Number(existing[0]?.productCount || 0) > 0) {
       const error = new Error('empty local protection');
@@ -220,6 +279,8 @@ async function createBackup(kind = 'manual', options = {}) {
       byteLength: local.byteLength,
       productCount: local.productCount,
       keyCount: local.keyCount,
+      snapshotHash: local.snapshotHash,
+      sourceDeviceId: deviceId(),
       schemaVersion: 1,
       appVersion: '1.0'
     };
@@ -235,7 +296,12 @@ async function createBackup(kind = 'manual', options = {}) {
       lastSuccessfulBackupAt: manifest.createdAtMs,
       lastBackupKind: kind,
       lastBackupId: backupId,
+      lastSeenBackupId: backupId,
+      lastBackupHash: local.snapshotHash,
       lastBackupProductCount: local.productCount,
+      cloudNewerBackupId: '',
+      cloudNewerAt: 0,
+      lastSyncReason: kind,
       lastError: ''
     });
 
@@ -380,12 +446,13 @@ function renderCloudPanelBase() {
         <span class="badge ${signedIn ? 'green' : 'gray'}">${signedIn ? 'Signed in' : 'Sign in required'}</span>
         <span class="badge lav">Saturday · 8:00 AM PH</span>
       </div>
-      <h3 style="margin:0 0 5px">Weekly safety backup</h3>
-      <p style="margin:0 0 12px">Ichigo keeps your collection on this device first. Cloud Backup never auto-restores or silently replaces local data.</p>
+      <h3 style="margin:0 0 5px">Cloud backup & safe sync</h3>
+      <p style="margin:0 0 12px">Changes are backed up automatically a few seconds after Ichigo saves them. Cloud data never silently replaces this device.</p>
       <div class="info-box" style="margin-bottom:12px">
         <strong>Last successful backup:</strong> <span id="ichigoCloudLastBackup">${formatDateTime(meta.lastSuccessfulBackupAt)}</span><br>
-        <strong>Next scheduled backup:</strong> ${formatDateTime(nextDue)}
-        <div style="margin-top:6px;font-size:10px">If Ichigo is closed or iOS suspends it at 8:00 AM, the backup runs the next time the app is open, signed in, and online.</div>
+        <strong>Auto backup:</strong> <span id="ichigoCloudAutoStatus">${meta.cloudNewerBackupId ? 'Paused · newer cloud copy protected' : 'On'}</span><br>
+        <strong>Weekly safety backup:</strong> ${formatDateTime(nextDue)}
+        <div style="margin-top:6px;font-size:10px">Local changes sync to your cloud backup after a short debounce. Saturday 8:00 AM PH remains the weekly safety checkpoint.</div>
       </div>
       <div class="button-row">
         <button class="primary" id="ichigoBackupNow" type="button" ${signedIn ? '' : 'disabled'}>Back up now</button>
@@ -489,6 +556,8 @@ async function refreshCloudPanel(force = false) {
         lastSuccessfulBackupAt: Number(latest.createdAtMs || 0),
         lastBackupKind: latest.kind || '',
         lastBackupId: latest.id,
+        lastSeenBackupId: latest.id,
+        lastBackupHash: latest.snapshotHash || readLocalMeta().lastBackupHash || '',
         lastBackupProductCount: Number(latest.productCount || 0),
         lastError: ''
       });
@@ -522,6 +591,97 @@ async function runScheduledBackupIfDue() {
   }
 }
 
+
+async function runAutoSync(reason = 'local-change') {
+  const user = getCurrentUser();
+  if (!user || backupBusy || !navigator.onLine) return;
+  if (restoreGuardActive(user.uid)) return;
+
+  const local = collectSnapshot();
+  const meta = readLocalMeta();
+  if (meta.lastBackupHash && meta.lastBackupHash === local.snapshotHash) return;
+
+  try {
+    const items = await listBackups(user.uid, 1);
+    const latest = items[0] || null;
+
+    if (latest?.snapshotHash && latest.snapshotHash === local.snapshotHash) {
+      writeLocalMeta({
+        lastSuccessfulBackupAt: Number(latest.createdAtMs || Date.now()),
+        lastBackupId: latest.id,
+        lastSeenBackupId: latest.id,
+        lastBackupHash: local.snapshotHash,
+        lastBackupProductCount: local.productCount,
+        cloudNewerBackupId: '',
+        cloudNewerAt: 0,
+        lastError: ''
+      });
+      return;
+    }
+
+    const otherDevice = Boolean(
+      latest?.sourceDeviceId &&
+      latest.sourceDeviceId !== deviceId()
+    );
+    const unseenRemote = Boolean(
+      otherDevice &&
+      meta.lastSeenBackupId &&
+      latest.id !== meta.lastSeenBackupId
+    );
+
+    if (unseenRemote) {
+      writeLocalMeta({
+        cloudNewerBackupId: latest.id,
+        cloudNewerAt: Number(latest.createdAtMs || Date.now()),
+        lastError: 'ichigo/newer-cloud-copy'
+      });
+      showCloudStatus('A newer backup from another device is protected. Use View & restore backups to review it before this device uploads changes.');
+      const status = qs('#ichigoCloudAutoStatus');
+      if (status) status.textContent = 'Paused · newer cloud copy protected';
+      return;
+    }
+
+    const result = await createBackup('sync', { skipIfUnchanged: true });
+    if (result) {
+      const status = qs('#ichigoCloudAutoStatus');
+      if (status) status.textContent = 'Up to date';
+    }
+  } catch (error) {
+    console.warn(`Ichigo auto sync deferred (${reason}).`, error);
+    writeLocalMeta({ lastError: error?.code || error?.message || 'auto sync failed' });
+    if (qs('#ichigoCloudStatus')) showCloudStatus(friendlyCloudError(error));
+  }
+}
+
+function scheduleAutoSync(reason = 'local-change', delay = AUTO_SYNC_DEBOUNCE_MS) {
+  if (autoSyncTimer) clearTimeout(autoSyncTimer);
+  const user = getCurrentUser();
+  if (!user || restoreGuardActive(user.uid)) return;
+  autoSyncTimer = setTimeout(() => {
+    autoSyncTimer = null;
+    void runAutoSync(reason);
+  }, Math.max(250, delay));
+}
+
+function startAutoSyncPoll() {
+  if (autoSyncPoll) clearInterval(autoSyncPoll);
+  if (!getCurrentUser()) return;
+  autoSyncPoll = setInterval(() => {
+    if (document.visibilityState === 'visible') scheduleAutoSync('periodic-check', 500);
+  }, AUTO_SYNC_POLL_MS);
+}
+
+function stopAutoSyncPoll() {
+  if (autoSyncPoll) {
+    clearInterval(autoSyncPoll);
+    autoSyncPoll = null;
+  }
+  if (autoSyncTimer) {
+    clearTimeout(autoSyncTimer);
+    autoSyncTimer = null;
+  }
+}
+
 function scheduleWeeklyTimer() {
   if (weeklyTimer) clearTimeout(weeklyTimer);
   if (!getCurrentUser()) return;
@@ -540,20 +700,39 @@ document.addEventListener('click', event => {
   if (event.target.closest?.('[data-nav="settings"]')) scheduleSettingsRender();
 });
 
-window.addEventListener('online', () => runScheduledBackupIfDue());
+window.addEventListener('ichigo-local-data-changed', event => {
+  scheduleAutoSync(event.detail?.source || 'local-change');
+});
+window.addEventListener('storage', event => {
+  if (event.key?.startsWith('ichigo-') && !event.key.startsWith('ichigo-cloud-')) {
+    scheduleAutoSync('storage-change');
+  }
+});
+window.addEventListener('online', () => {
+  scheduleAutoSync('online', 500);
+  runScheduledBackupIfDue();
+});
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') runScheduledBackupIfDue();
+  if (document.visibilityState === 'visible') {
+    scheduleAutoSync('resume', 700);
+    runScheduledBackupIfDue();
+  }
 });
 
 window.addEventListener('ichigo-auth-ready', event => {
   const signedIn = Boolean(event.detail?.user);
   summaryLoadedForUid = '';
   if (signedIn) {
+    scheduleAutoSync('sign-in', 1200);
     setTimeout(() => runScheduledBackupIfDue(), 2500);
     scheduleWeeklyTimer();
-  } else if (weeklyTimer) {
-    clearTimeout(weeklyTimer);
-    weeklyTimer = null;
+    startAutoSyncPoll();
+  } else {
+    if (weeklyTimer) {
+      clearTimeout(weeklyTimer);
+      weeklyTimer = null;
+    }
+    stopAutoSyncPoll();
   }
   scheduleSettingsRender();
 });
