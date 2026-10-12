@@ -567,7 +567,7 @@ function renderCloudPanelBase() {
     <div class="card">
       <div class="badges" style="margin-bottom:10px">
         <span class="badge ${signedIn ? 'green' : 'gray'}">${signedIn ? 'Signed in' : 'Sign in required'}</span>
-        <span class="badge lav">Saturday · 8:00 AM PH</span>
+        <span class="badge lav">Saturday · 8:00 AM PH</span>\n        <span class="badge gray">Cloud build ${CLOUD_BUILD}</span>
       </div>
       <h3 style="margin:0 0 5px">Cloud backup & safe sync</h3>
       <p style="margin:0 0 12px">Changes are backed up automatically a few seconds after Ichigo saves them. Cloud data never silently replaces this device.</p>
@@ -581,6 +581,7 @@ function renderCloudPanelBase() {
         <button class="primary" id="ichigoBackupNow" type="button" ${signedIn ? '' : 'disabled'}>Back up now</button>
         <button class="secondary" id="ichigoShowBackups" type="button" ${signedIn ? '' : 'disabled'}>View & restore backups</button>
       </div>
+      <button class="link-btn" id="ichigoForceUpdate" type="button" style="margin-top:10px">Force app update</button>
       <div id="ichigoCloudStatus" class="info-box hidden" style="margin-top:10px"></div>
       <div id="ichigoBackupList" style="margin-top:12px"></div>
     </div>`;
@@ -599,6 +600,27 @@ function renderCloudPanelBase() {
 
   qs('#ichigoShowBackups')?.addEventListener('click', async () => {
     await renderBackupList();
+  });
+
+  qs('#ichigoForceUpdate')?.addEventListener('click', async () => {
+    showCloudStatus('Clearing old Ichigo app files…');
+    try {
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations
+          .filter(registration => registration.scope.startsWith(location.origin))
+          .map(registration => registration.unregister()));
+      }
+      if ('caches' in window) {
+        const names = await caches.keys();
+        await Promise.all(names.filter(name => name.startsWith('ichigo-')).map(name => caches.delete(name)));
+      }
+    } catch (error) {
+      console.warn('Ichigo force-update cleanup was partial.', error);
+    }
+    const url = new URL(location.href);
+    url.searchParams.set('ichigo_refresh', String(Date.now()));
+    location.replace(url.toString());
   });
 }
 
