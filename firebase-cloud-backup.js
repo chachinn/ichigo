@@ -23,6 +23,8 @@ const MAX_BACKUPS = 8;
 const LIST_LIMIT = 12;
 const AUTO_SYNC_DEBOUNCE_MS = 3500;
 const AUTO_SYNC_POLL_MS = 30000;
+const FIRESTORE_READ_TIMEOUT_MS = 10000;
+const FIRESTORE_WRITE_TIMEOUT_MS = 15000;
 const PH_OFFSET_MS = 8 * 60 * 60 * 1000;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 let backupBusy = false;
@@ -38,6 +40,22 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({
 
 function getCurrentUser() {
   return auth.currentUser || null;
+}
+
+function withCloudTimeout(promise, ms, code = 'ichigo/firestore-timeout') {
+  let timer = null;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => {
+      if (timer) clearTimeout(timer);
+    }),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error('Cloud request timed out');
+        error.code = code;
+        reject(error);
+      }, ms);
+    })
+  ]);
 }
 
 function isManagedKey(key) {
@@ -201,6 +219,12 @@ function friendlyCloudError(error) {
   if (code.includes('failed-precondition') || code.includes('not-found')) {
     return 'Cloud Firestore still needs to be created for the Ichigo Firebase project.';
   }
+  if (code === 'ichigo/firestore-timeout') {
+    return 'Cloud Backup took too long to respond. Ichigo stopped waiting safely; your local collection is untouched. Check your connection and try again.';
+  }
+  if (code === 'ichigo/backup-busy') {
+    return 'Another Ichigo backup is already running. Give it a few seconds, then try again.';
+  }
   if (code.includes('unavailable') || code.includes('network')) {
     return 'Ichigo could not reach Cloud Firestore. Your local collection is safe; try again when you are online.';
   }
@@ -217,7 +241,10 @@ function friendlyCloudError(error) {
 }
 
 async function listBackups(uid, count = LIST_LIMIT) {
-  const snap = await getDocs(query(backupCollection(uid), orderBy('createdAtMs', 'desc'), limit(count)));
+  const snap = await withCloudTimeout(
+    getDocs(query(backupCollection(uid), orderBy('createdAtMs', 'desc'), limit(count))),
+    FIRESTORE_READ_TIMEOUT_MS
+  );
   return snap.docs.map(item => ({ id: item.id, ...item.data() }));
 }
 
@@ -228,7 +255,7 @@ async function deleteBackup(uid, item) {
     batch.delete(chunkRef(uid, item.id, i));
   }
   batch.delete(backupRef(uid, item.id));
-  await batch.commit();
+  await withCloudTimeout(batch.commit(), FIRESTORE_WRITE_TIMEOUT_MS);
 }
 
 async function pruneBackups(uid) {
@@ -243,7 +270,11 @@ async function pruneBackups(uid) {
 async function createBackup(kind = 'manual', options = {}) {
   const user = getCurrentUser();
   if (!user) throw new Error('ichigo/not-signed-in');
-  if (backupBusy) return null;
+  if (backupBusy) {
+    const error = new Error('backup already running');
+    error.code = 'ichigo/backup-busy';
+    throw error;
+  }
   backupBusy = true;
   updateCloudButtons();
 
@@ -260,7 +291,10 @@ async function createBackup(kind = 'manual', options = {}) {
       return null;
     }
 
-    const existing = options.skipEmptyProtection ? [] : await listBackups(user.uid, 1);
+    let existing = [];
+    if (!options.skipEmptyProtection && !options.allowEmpty && local.productCount === 0) {
+      existing = await listBackups(user.uid, 1);
+    }
     if (!options.allowEmpty && local.productCount === 0 && Number(existing[0]?.productCount || 0) > 0) {
       const error = new Error('empty local protection');
       error.code = 'ichigo/empty-local-protection';
@@ -290,7 +324,7 @@ async function createBackup(kind = 'manual', options = {}) {
     chunks.forEach((data, index) => {
       batch.set(chunkRef(user.uid, backupId, index), { index, data });
     });
-    await batch.commit();
+    await withCloudTimeout(batch.commit(), FIRESTORE_WRITE_TIMEOUT_MS);
 
     writeLocalMeta({
       lastSuccessfulBackupAt: manifest.createdAtMs,
@@ -305,8 +339,19 @@ async function createBackup(kind = 'manual', options = {}) {
       lastError: ''
     });
 
-    if (!options.skipPrune) await pruneBackups(user.uid);
-    await refreshCloudPanel(true);
+    summaryLoadedForUid = user.uid;
+    const lastBackupEl = qs('#ichigoCloudLastBackup');
+    if (lastBackupEl) lastBackupEl.textContent = formatDateTime(manifest.createdAtMs);
+    const autoStatusEl = qs('#ichigoCloudAutoStatus');
+    if (autoStatusEl) autoStatusEl.textContent = 'Up to date';
+
+    if (!options.skipPrune) {
+      setTimeout(() => {
+        pruneBackups(user.uid).catch(error => {
+          console.warn('Ichigo deferred backup pruning.', error);
+        });
+      }, 0);
+    }
     scheduleWeeklyTimer();
 
     window.dispatchEvent(new CustomEvent('ichigo-cloud-backup-complete', {
@@ -324,7 +369,10 @@ async function fetchBackupSnapshot(uid, item) {
   const chunkCount = Number(item?.chunkCount || 0);
   if (!chunkCount) throw new Error('Backup has no chunks.');
   for (let i = 0; i < chunkCount; i += 1) {
-    const snap = await getDoc(chunkRef(uid, item.id, i));
+    const snap = await withCloudTimeout(
+      getDoc(chunkRef(uid, item.id, i)),
+      FIRESTORE_READ_TIMEOUT_MS
+    );
     if (!snap.exists()) throw new Error(`Backup chunk ${i} is missing.`);
     parts.push(String(snap.data()?.data || ''));
   }
