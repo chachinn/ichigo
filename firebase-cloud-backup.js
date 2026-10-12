@@ -25,6 +25,7 @@ const AUTO_SYNC_DEBOUNCE_MS = 3500;
 const AUTO_SYNC_POLL_MS = 30000;
 const FIRESTORE_READ_TIMEOUT_MS = 10000;
 const FIRESTORE_WRITE_TIMEOUT_MS = 15000;
+const CLOUD_BUILD = '2026.10.12.3';
 const PH_OFFSET_MS = 8 * 60 * 60 * 1000;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 let backupBusy = false;
@@ -56,6 +57,81 @@ function withCloudTimeout(promise, ms, code = 'ichigo/firestore-timeout') {
       }, ms);
     })
   ]);
+}
+
+function setCloudStage(message, good = false) {
+  if (!message) return;
+  showCloudStatus(message, good);
+}
+
+function firestoreFieldsFromManifest(manifest) {
+  return {
+    uid: { stringValue: String(manifest.uid || '') },
+    kind: { stringValue: String(manifest.kind || '') },
+    createdAtMs: { integerValue: String(Number(manifest.createdAtMs || Date.now())) },
+    createdAt: { timestampValue: new Date(Number(manifest.createdAtMs || Date.now())).toISOString() },
+    chunkCount: { integerValue: String(Number(manifest.chunkCount || 0)) },
+    charLength: { integerValue: String(Number(manifest.charLength || 0)) },
+    byteLength: { integerValue: String(Number(manifest.byteLength || 0)) },
+    productCount: { integerValue: String(Number(manifest.productCount || 0)) },
+    keyCount: { integerValue: String(Number(manifest.keyCount || 0)) },
+    snapshotHash: { stringValue: String(manifest.snapshotHash || '') },
+    sourceDeviceId: { stringValue: String(manifest.sourceDeviceId || '') },
+    schemaVersion: { integerValue: String(Number(manifest.schemaVersion || 1)) },
+    appVersion: { stringValue: String(manifest.appVersion || '1.0') },
+    cloudBuild: { stringValue: CLOUD_BUILD }
+  };
+}
+
+async function commitBackupViaRest(user, backupId, manifest, chunks) {
+  setCloudStage('Authenticating cloud backup…');
+  const token = await withCloudTimeout(user.getIdToken(), FIRESTORE_READ_TIMEOUT_MS);
+  const projectId = app?.options?.projectId || 'ichigo-b7e33';
+  const root = `projects/${projectId}/databases/(default)/documents`;
+  const writes = [
+    { update: { name: `${root}/users/${user.uid}/ichigoBackups/${backupId}`, fields: firestoreFieldsFromManifest(manifest) } },
+    ...chunks.map((data, index) => ({
+      update: {
+        name: `${root}/users/${user.uid}/ichigoBackups/${backupId}/chunks/${String(index).padStart(4, '0')}`,
+        fields: { index: { integerValue: String(index) }, data: { stringValue: String(data) } }
+      }
+    }))
+  ];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FIRESTORE_WRITE_TIMEOUT_MS);
+  setCloudStage(`Writing ${chunks.length} cloud part${chunks.length === 1 ? '' : 's'}…`);
+  try {
+    const response = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:commit`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ writes }),
+        signal: controller.signal,
+        cache: 'no-store'
+      }
+    );
+    if (!response.ok) {
+      let details = '';
+      try { details = await response.text(); } catch (_) {}
+      const error = new Error(`Firestore REST write failed (${response.status}) ${details.slice(0, 300)}`);
+      if (response.status === 401 || response.status === 403) error.code = 'permission-denied';
+      else if (response.status === 404) error.code = 'not-found';
+      else error.code = 'ichigo/firestore-rest-write';
+      throw error;
+    }
+    setCloudStage('Firebase confirmed the backup.', true);
+    return true;
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      const timeoutError = new Error('Cloud request timed out');
+      timeoutError.code = 'ichigo/firestore-timeout';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function isManagedKey(key) {
@@ -225,6 +301,9 @@ function friendlyCloudError(error) {
   if (code === 'ichigo/backup-busy') {
     return 'Another Ichigo backup is already running. Give it a few seconds, then try again.';
   }
+  if (code === 'ichigo/firestore-rest-write') {
+    return 'Firebase rejected the backup request. Ichigo stopped safely without changing your local collection.';
+  }
   if (code.includes('unavailable') || code.includes('network')) {
     return 'Ichigo could not reach Cloud Firestore. Your local collection is safe; try again when you are online.';
   }
@@ -319,12 +398,8 @@ async function createBackup(kind = 'manual', options = {}) {
       appVersion: '1.0'
     };
 
-    const batch = writeBatch(db);
-    batch.set(backupRef(user.uid, backupId), manifest);
-    chunks.forEach((data, index) => {
-      batch.set(chunkRef(user.uid, backupId, index), { index, data });
-    });
-    await withCloudTimeout(batch.commit(), FIRESTORE_WRITE_TIMEOUT_MS);
+    setCloudStage(`Preparing ${local.productCount} product${local.productCount === 1 ? '' : 's'} for backup…`);
+    await commitBackupViaRest(user, backupId, manifest, chunks);
 
     writeLocalMeta({
       lastSuccessfulBackupAt: manifest.createdAtMs,
