@@ -98,13 +98,22 @@
       return parsed && Array.isArray(parsed.products) ? parsed : defaultData();
     }catch(_){ return defaultData(); }
   }
+  function notifyLocalChange(source='data'){
+    window.dispatchEvent(new CustomEvent('ichigo-local-data-changed', {
+      detail: { source, at: Date.now() }
+    }));
+  }
   function save(){
     localStorage.setItem(KEY, JSON.stringify(data));
+    notifyLocalChange('inventory');
   }
   function settings(){
     try{return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || { onlineSearch:true, cautious:'balanced' };}catch(_){return { onlineSearch:true, cautious:'balanced' };}
   }
-  function saveSettings(s){ localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
+  function saveSettings(s){
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+    notifyLocalChange('settings');
+  }
 
   function toast(msg){
     const el = $('#toast'); el.textContent = msg; el.classList.remove('hidden');
