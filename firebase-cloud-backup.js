@@ -241,8 +241,16 @@ function collectSnapshot() {
 
 function splitSnapshot(json) {
   const chunks = [];
-  for (let i = 0; i < json.length; i += CHUNK_CHAR_LIMIT) {
-    chunks.push(json.slice(i, i + CHUNK_CHAR_LIMIT));
+  for (let start = 0; start < json.length;) {
+    let end = Math.min(json.length, start + CHUNK_CHAR_LIMIT);
+    // Never split a UTF-16 surrogate pair across Firestore documents.
+    if (end < json.length &&
+        json.charCodeAt(end - 1) >= 0xD800 &&
+        json.charCodeAt(end - 1) <= 0xDBFF &&
+        json.charCodeAt(end) >= 0xDC00 &&
+        json.charCodeAt(end) <= 0xDFFF) end -= 1;
+    chunks.push(json.slice(start, end));
+    start = end;
   }
   return chunks.length ? chunks : [''];
 }
@@ -611,7 +619,7 @@ function renderCloudPanelBase() {
       <p style="margin:0 0 12px">Changes are backed up automatically a few seconds after Ichigo saves them. Cloud data never silently replaces this device.</p>
       <div class="info-box" style="margin-bottom:12px">
         <strong>Last successful backup:</strong> <span id="ichigoCloudLastBackup">${formatDateTime(meta.lastSuccessfulBackupAt)}</span><br>
-        <strong>Auto backup:</strong> <span id="ichigoCloudAutoStatus">${meta.cloudNewerBackupId ? 'Paused · newer cloud copy protected' : 'On'}</span><br>
+        <strong>Auto backup:</strong> <span id="ichigoCloudAutoStatus">${meta.cloudNewerBackupId ? 'Paused · newer cloud copy protected' : meta.lastSuccessfulBackupAt ? 'Enabled · last backup confirmed' : 'Enabled · waiting for first confirmed backup'}</span><br>
         <strong>Weekly safety backup:</strong> ${formatDateTime(nextDue)}
         <div style="margin-top:6px;font-size:10px">Local changes sync to your cloud backup after a short debounce. Saturday 8:00 AM PH remains the weekly safety checkpoint.</div>
       </div>
