@@ -159,6 +159,17 @@ async function commitBackupViaRest(user, backupId, manifest, chunks) {
   return true;
 }
 
+async function checkFirestoreConnection() {
+  const user = getCurrentUser();
+  if (!user) throw new Error('Sign in to Ichigo before checking Firebase.');
+  const projectId = app?.options?.projectId || 'ichigo-b7e33';
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${encodeURIComponent(user.uid)}/ichigoBackups?pageSize=1`;
+  setCloudStage('Checking Firebase authentication and database access…');
+  await firestoreRestRequest(user, url, { timeout: FIRESTORE_READ_TIMEOUT_MS });
+  setCloudStage('Firebase connection OK · signed-in account can read Ichigo backups. Write access still requires a successful backup test.', true);
+  return true;
+}
+
 function isManagedKey(key) {
   if (!key || !key.startsWith('ichigo-')) return false;
   if (key === 'ichigo-auth-local-mode-v1') return false;
@@ -608,6 +619,7 @@ function renderCloudPanelBase() {
         <button class="primary" id="ichigoBackupNow" type="button" ${signedIn ? '' : 'disabled'}>Back up now</button>
         <button class="secondary" id="ichigoShowBackups" type="button" ${signedIn ? '' : 'disabled'}>View & restore backups</button>
       </div>
+      <button class="secondary" id="ichigoCheckFirebase" type="button" ${signedIn ? '' : 'disabled'} style="margin-top:10px">Check Firebase connection</button>
       <button class="link-btn" id="ichigoForceUpdate" type="button" style="margin-top:10px">Force app update</button>
       <div id="ichigoCloudStatus" class="info-box hidden" style="margin-top:10px"></div>
       <div id="ichigoBackupList" style="margin-top:12px"></div>
@@ -627,6 +639,16 @@ function renderCloudPanelBase() {
 
   qs('#ichigoShowBackups')?.addEventListener('click', async () => {
     await renderBackupList();
+  });
+
+  qs('#ichigoCheckFirebase')?.addEventListener('click', async () => {
+    const button = qs('#ichigoCheckFirebase');
+    if (button) button.disabled = true;
+    try { await checkFirestoreConnection(); }
+    catch (error) {
+      console.warn('Ichigo Firebase connection diagnostic failed.', error?.code || error?.message || error);
+      showCloudStatus(`Firebase check failed · ${error?.message || friendlyCloudError(error)}. ${friendlyCloudError(error)}`);
+    } finally { if (button) button.disabled = !getCurrentUser(); }
   });
 
   qs('#ichigoForceUpdate')?.addEventListener('click', async () => {
