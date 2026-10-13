@@ -25,7 +25,8 @@ const AUTO_SYNC_DEBOUNCE_MS = 3500;
 const AUTO_SYNC_POLL_MS = 30000;
 const FIRESTORE_READ_TIMEOUT_MS = 10000;
 const FIRESTORE_WRITE_TIMEOUT_MS = 15000;
-const CLOUD_BUILD = '2026.10.12.3';
+const CLOUD_BUILD = '2026.10.13.1';
+const CHUNKS_PER_COMMIT = 6;
 const PH_OFFSET_MS = 8 * 60 * 60 * 1000;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 let backupBusy = false;
@@ -83,55 +84,79 @@ function firestoreFieldsFromManifest(manifest) {
   };
 }
 
-async function commitBackupViaRest(user, backupId, manifest, chunks) {
-  setCloudStage('Authenticating cloud backup…');
+async function firestoreRestRequest(user, url, options = {}) {
   const token = await withCloudTimeout(user.getIdToken(), FIRESTORE_READ_TIMEOUT_MS);
-  const projectId = app?.options?.projectId || 'ichigo-b7e33';
-  const root = `projects/${projectId}/databases/(default)/documents`;
-  const writes = [
-    { update: { name: `${root}/users/${user.uid}/ichigoBackups/${backupId}`, fields: firestoreFieldsFromManifest(manifest) } },
-    ...chunks.map((data, index) => ({
-      update: {
-        name: `${root}/users/${user.uid}/ichigoBackups/${backupId}/chunks/${String(index).padStart(4, '0')}`,
-        fields: { index: { integerValue: String(index) }, data: { stringValue: String(data) } }
-      }
-    }))
-  ];
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FIRESTORE_WRITE_TIMEOUT_MS);
-  setCloudStage(`Writing ${chunks.length} cloud part${chunks.length === 1 ? '' : 's'}…`);
+  const timeout = setTimeout(() => controller.abort(), options.timeout || FIRESTORE_WRITE_TIMEOUT_MS);
   try {
-    const response = await fetch(
-      `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:commit`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ writes }),
-        signal: controller.signal,
-        cache: 'no-store'
-      }
-    );
+    const response = await fetch(url, {
+      method: options.method || 'GET',
+      headers: { Authorization: `Bearer ${token}`, ...(options.body ? { 'Content-Type': 'application/json' } : {}) },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      cache: 'no-store',
+      signal: controller.signal
+    });
     if (!response.ok) {
-      let details = '';
-      try { details = await response.text(); } catch (_) {}
-      const error = new Error(`Firestore REST write failed (${response.status}) ${details.slice(0, 300)}`);
-      if (response.status === 401 || response.status === 403) error.code = 'permission-denied';
-      else if (response.status === 404) error.code = 'not-found';
-      else error.code = 'ichigo/firestore-rest-write';
+      let remoteCode = '';
+      try {
+        const result = await response.json();
+        remoteCode = String(result?.error?.status || result?.error?.code || '');
+      } catch (_) {}
+      const error = new Error(`Firebase HTTP ${response.status}${remoteCode ? ' · ' + remoteCode : ''}`);
+      error.code = response.status === 401 || response.status === 403 ? 'permission-denied'
+        : response.status === 404 ? 'not-found'
+        : response.status === 413 ? 'ichigo/backup-too-large'
+        : 'ichigo/firestore-http-error';
+      error.httpStatus = response.status;
+      error.remoteCode = remoteCode;
       throw error;
     }
-    setCloudStage('Firebase confirmed the backup.', true);
-    return true;
+    return options.parseJson === false ? null : response.json();
   } catch (error) {
     if (error?.name === 'AbortError') {
-      const timeoutError = new Error('Cloud request timed out');
+      const timeoutError = new Error('Firebase request timed out');
       timeoutError.code = 'ichigo/firestore-timeout';
       throw timeoutError;
     }
     throw error;
   } finally {
-    clearTimeout(timer);
+    clearTimeout(timeout);
   }
+}
+
+async function commitBackupViaRest(user, backupId, manifest, chunks) {
+  setCloudStage('Authenticating cloud backup…');
+  const projectId = app?.options?.projectId || 'ichigo-b7e33';
+  const root = `projects/${projectId}/databases/(default)/documents`;
+  const commitUrl = `https://firestore.googleapis.com/v1/${root}:commit`;
+  const totalBatches = Math.ceil(chunks.length / CHUNKS_PER_COMMIT);
+
+  // Write chunks first. Publish the manifest ONLY after every chunk succeeds,
+  // so a failed partial backup cannot be mistaken for a restorable backup.
+  for (let start = 0; start < chunks.length; start += CHUNKS_PER_COMMIT) {
+    const selected = chunks.slice(start, start + CHUNKS_PER_COMMIT);
+    const part = Math.floor(start / CHUNKS_PER_COMMIT) + 1;
+    setCloudStage(`Uploading backup part ${part}/${totalBatches}…`);
+    const writes = selected.map((data, offset) => {
+      const index = start + offset;
+      return { update: {
+        name: `${root}/users/${user.uid}/ichigoBackups/${backupId}/chunks/${String(index).padStart(4, '0')}`,
+        fields: { index: { integerValue: String(index) }, data: { stringValue: String(data) } }
+      }};
+    });
+    await firestoreRestRequest(user, commitUrl, { method: 'POST', body: { writes }, parseJson: false });
+  }
+
+  setCloudStage('Finalizing and confirming cloud backup…');
+  await firestoreRestRequest(user, commitUrl, {
+    method: 'POST', parseJson: false,
+    body: { writes: [{ update: {
+      name: `${root}/users/${user.uid}/ichigoBackups/${backupId}`,
+      fields: firestoreFieldsFromManifest(manifest)
+    }}]}
+  });
+  setCloudStage('Firebase confirmed the backup.', true);
+  return true;
 }
 
 function isManagedKey(key) {
@@ -295,6 +320,8 @@ function friendlyCloudError(error) {
   if (code.includes('failed-precondition') || code.includes('not-found')) {
     return 'Cloud Firestore still needs to be created for the Ichigo Firebase project.';
   }
+  if (code === 'ichigo/backup-too-large') return 'This collection is too large for one Firestore request. Backup stopped safely.';
+  if (code === 'ichigo/firestore-http-error') return `Firebase rejected the request (${error?.message || 'unknown error'}). Your local collection is unchanged.`;
   if (code === 'ichigo/firestore-timeout') {
     return 'Cloud Backup took too long to respond. Ichigo stopped waiting safely; your local collection is untouched. Check your connection and try again.';
   }
