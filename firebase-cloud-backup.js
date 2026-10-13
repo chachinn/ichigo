@@ -657,7 +657,11 @@ function renderCloudPanelBase() {
       if ('serviceWorker' in navigator) {
         const registrations = await navigator.serviceWorker.getRegistrations();
         await Promise.all(registrations
-          .filter(registration => registration.scope.startsWith(location.origin))
+          .filter(registration => {
+            const scope = new URL(registration.scope);
+            return scope.origin === location.origin &&
+              scope.pathname.startsWith(new URL('./', location.href).pathname);
+          })
           .map(registration => registration.unregister()));
       }
       if ('caches' in window) {
@@ -746,14 +750,12 @@ async function refreshCloudPanel(force = false) {
     const items = await listBackups(user.uid, 1);
     const latest = items[0];
     if (latest) {
+      // Remote history is informational. Never mark another device's backup
+      // as this device's completed sync or overwrite its local sync baseline.
       writeLocalMeta({
-        lastSuccessfulBackupAt: Number(latest.createdAtMs || 0),
-        lastBackupKind: latest.kind || '',
-        lastBackupId: latest.id,
-        lastSeenBackupId: latest.id,
-        lastBackupHash: latest.snapshotHash || readLocalMeta().lastBackupHash || '',
-        lastBackupProductCount: Number(latest.productCount || 0),
-        lastError: ''
+        lastRemoteBackupAt: Number(latest.createdAtMs || 0),
+        lastRemoteBackupId: latest.id,
+        lastRemoteBackupProductCount: Number(latest.productCount || 0)
       });
       const el = qs('#ichigoCloudLastBackup');
       if (el) el.textContent = formatDateTime(latest.createdAtMs);
