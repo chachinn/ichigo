@@ -691,7 +691,7 @@
   if('serviceWorker' in navigator && location.protocol.startsWith('http')){
     addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./service-worker.js?v=20261012-v23',{scope:'./',updateViaCache:'none'});
+        const reg=await navigator.serviceWorker.register('./service-worker.js?v=20261013-v24',{scope:'./',updateViaCache:'none'});
         await reg.update();
       }catch(error){console.warn('Ichigo service worker update was deferred.',error);}
     });
